@@ -1,0 +1,10 @@
+[unstable]
+json-target-spec = true
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]
+
+[build]
+target = ".cargo/i686-freestanding.json"
+
+#[target.'cfg(target_os = "none")']
+#rustflags = ["-C", "link-arg=-e_entdddasdfasdflahldfjhasldkfjhalsdkjfhry"]

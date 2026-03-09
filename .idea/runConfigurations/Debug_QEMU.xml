@@ -1,0 +1,5 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Debug QEMU" type="RsRemoteRunConfiguration" debuggerKind="USER_GDB" userDebuggerPath="/opt/homebrew/bin/i386-elf-gdb" remoteCommand="localhost:9000" symbolFile="$ProjectFileDir$/target/i686-freestanding/debug/tinyos-reborn" sysroot="">
+    <method v="2" />
+  </configuration>
+</component>
