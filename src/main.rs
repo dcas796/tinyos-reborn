@@ -2,18 +2,31 @@
 #![no_main]
 
 use core::arch::asm;
-use core::ptr::{slice_from_raw_parts_mut, write_volatile};
 use crate::sysinfo::sysinfo_t;
+use crate::vga::Vga;
+use core::fmt::Write;
 
 mod sysinfo;
+mod vga;
+
+pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
+pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start(info: sysinfo_t) -> ! {
-    unsafe {
-        write_volatile(0xb8000 as *mut u16, (0x0fu16 << 8) | '#' as u16);
-        write_volatile(0xb8002 as *mut u16, (0x0fu16 << 8) | (info.boot_drive - 2) as u16);
+    let mut vga = Vga::default();
+    vga.clear_screen();
 
-        loop {
+    writeln!(vga, "{PACKAGE_NAME} {PACKAGE_VERSION}").unwrap();
+    writeln!(vga, "System info: {info:#x?}").unwrap();
+
+    halt();
+}
+
+pub fn halt() -> ! {
+    loop {
+        // SAFETY: duh
+        unsafe {
             asm!("hlt");
         }
     }
@@ -21,11 +34,7 @@ pub extern "C" fn _start(info: sysinfo_t) -> ! {
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe {
-        loop {
-            asm!("hlt");
-        }
-    }
+    halt();
 }
 
 

@@ -1,18 +1,33 @@
+#!/bin/bash
+
+set -e
+
 TARGET_NAME=tinyos-reborn
 TARGET_BIN_DIR=target/i686-freestanding/debug/
+
 BOOTLOADER_DIR=x86_64-bootloader
+BOOTLOADER_BUILD_DIR=$BOOTLOADER_DIR/build
 BOOTLOADER_BOOT_DIR=$BOOTLOADER_DIR/disk/boot
 BOOTLOADER_OPTIONS_TXT=$BOOTLOADER_BOOT_DIR/options.txt
 BOOTLOADER_BOOT_BINARY_NAME=kernel.elf
 BOOTLOADER_BOOT_BINARY_PATH=$BOOTLOADER_BOOT_DIR/$BOOTLOADER_BOOT_BINARY_NAME
+BOOTLOADER_BOOT_IMG=$BOOTLOADER_BUILD_DIR/boot.img
+
+SERIAL_FILE_PATH=serial
+
+QEMU=qemu-system-i386
+QEMUFLAGS=(-drive "format=raw,file=$BOOTLOADER_BOOT_IMG" -monitor stdio -serial "file:$SERIAL_FILE_PATH")
+
+if [ -n "$DEBUG" ]; then
+  QEMUFLAGS+=(-gdb "tcp::9000" -S)
+fi
 
 cp $TARGET_BIN_DIR/$TARGET_NAME $BOOTLOADER_BOOT_BINARY_PATH
 cat <<EOF > $BOOTLOADER_OPTIONS_TXT
 boot_binary=/boot/$BOOTLOADER_BOOT_BINARY_NAME
 EOF
 
-if [ -z "$DEBUG" ]; then
-  make -C $BOOTLOADER_DIR clean qemu
-else
-  make -C $BOOTLOADER_DIR clean qemu-debug-32
-fi
+make -C $BOOTLOADER_DIR clean all
+
+echo $QEMU ${QEMUFLAGS}
+$QEMU ${QEMUFLAGS}
