@@ -1,9 +1,13 @@
 // === PRIVATE API ===
 
+use core::fmt::{Display, Formatter, Write};
+use int_enum::IntEnum;
+
 const DEFAULT_VGA_WIDTH: usize = 80;
 const DEFAULT_VGA_HEIGHT: usize = 25;
 
-#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, IntEnum)]
 pub enum VgaColor {
     Black        = 0x0,
     Blue         = 0x1,
@@ -21,6 +25,15 @@ pub enum VgaColor {
     LightMagenta = 0xD,
     Yellow       = 0xE,
     BrightWhite  = 0xF,
+    End          = 0xFF,
+}
+
+impl Display for VgaColor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.write_char(0x11 as char)?;
+        f.write_char(*self as u8 as char)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -30,13 +43,15 @@ pub struct VgaStyle {
     pub blink: bool,
 }
 
+impl VgaStyle {
+    pub fn new(foreground: VgaColor, background: VgaColor, blink: bool) -> Self {
+        Self { foreground, background, blink }
+    }
+}
+
 impl Default for VgaStyle {
     fn default() -> Self {
-        Self {
-            foreground: VgaColor::White,
-            background: VgaColor::Black,
-            blink: false,
-        }
+        Self::new(VgaColor::White, VgaColor::Black, false)
     }
 }
 
@@ -71,7 +86,9 @@ pub struct Vga<'a> {
     height: usize,
     cursor_x: usize,
     cursor_y: usize,
-    style: VgaStyle,
+    current_style: VgaStyle,
+    default_style: VgaStyle,
+    is_styling: bool,
 }
 
 impl<'a> Vga<'a> {
@@ -82,7 +99,9 @@ impl<'a> Vga<'a> {
             height,
             cursor_x: 0,
             cursor_y: 0,
-            style: VgaStyle::default(),
+            current_style: VgaStyle::default(),
+            default_style: VgaStyle::default(),
+            is_styling: false,
         }
     }
 }
@@ -102,9 +121,18 @@ impl Vga<'_> {
         for c in s.chars() {
             match c {
                 '\n' => self.newline(),
+                '\x11' => self.is_styling = true,
+                c if self.is_styling => {
+                    match VgaColor::try_from(c as u8) {
+                        Ok(VgaColor::End) => self.current_style = self.default_style,
+                        Ok(color) => self.current_style.foreground = color,
+                        Err(_) => {},
+                    }
+                    self.is_styling = false;
+                }
                 c => {
                     self.plot(
-                        VgaChar { c, style: self.style },
+                        VgaChar { c, style: self.current_style },
                         self.cursor_x,
                         self.cursor_y
                     ).expect("Failed to plot string");
@@ -139,12 +167,27 @@ impl Vga<'_> {
             }
         }
     }
+
+    pub fn style(&self) -> VgaStyle {
+        self.default_style
+    }
+
+    pub fn set_foreground(&mut self, color: VgaColor) {
+        if color == VgaColor::End { return }
+        self.default_style.foreground = color;
+        self.current_style = self.default_style;
+    }
+
+    pub fn set_background(&mut self, color: VgaColor) {
+        if color == VgaColor::End { return }
+        self.default_style.background = color;
+        self.current_style = self.default_style;
+    }
 }
 
 impl Default for Vga<'static> {
     fn default() -> Vga<'static> {
         Self::new(
-            // SAFETY: mono-threaded kernel
             unsafe {
                 core::slice::from_raw_parts_mut(
                     0xB8000 as *mut u16,
@@ -157,7 +200,7 @@ impl Default for Vga<'static> {
     }
 }
 
-impl core::fmt::Write for Vga<'_> {
+impl Write for Vga<'_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         self.puts(s);
         Ok(())
