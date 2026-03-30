@@ -1,15 +1,20 @@
 #![no_std]
 #![no_main]
 
-use crate::sysinfo::{sysinfo_t, MemoryRegions, MemoryType};
+extern crate alloc;
+
+use alloc::string::String;
+use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::Vga;
 use core::fmt::Write;
-use crate::log::log_init;
+use crate::kalloc::init_allocator;
+use crate::log::init_log;
 use crate::vga::VgaColor::*;
 
 mod sysinfo;
 mod vga;
 mod log;
+mod kalloc;
 
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -19,7 +24,7 @@ pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     let info = unsafe { &*info_raw };
 
-    log_init();
+    init_modules(info);
 
     logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
     logln!("System info: {info:#x?}");
@@ -32,7 +37,21 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     writeln!(vga, "{Magenta}{PACKAGE_NAME} {Gray}{PACKAGE_VERSION}{End}\n").unwrap();
     writeln!(vga, "Boot drive: {Yellow}{:#x}{End}", info.boot_drive).unwrap();
 
+    print_mem_regions(&mut vga, info.mem_regions);
+
+    do_heap_test(&mut vga);
+
+    halt();
+}
+
+fn init_modules(info: &sysinfo_t) {
+    init_log();
     let memory_regions = MemoryRegions::from(info.mem_regions);
+    init_allocator(&memory_regions).expect("Failed to initialize memory allocator");
+}
+
+fn print_mem_regions(vga: &mut Vga, mem_regions: *mut sysinfo_memregion_t) {
+    let memory_regions = MemoryRegions::from(mem_regions);
 
     writeln!(vga, "Reported memory layout: ").unwrap();
     for memory_region in memory_regions.iter() {
@@ -57,8 +76,21 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
 
     writeln!(vga, "Largest region base address: {Green}{:#x}{End}", largest_region.base_addr).unwrap();
     writeln!(vga, "Largest region size: {Green}{:.1} MB{End}", largest_region.size as f32 / 1_000_000.0).unwrap();
+}
 
-    halt();
+fn do_heap_test(vga: &mut Vga) {
+    let str = String::from("hallo");
+    writeln!(vga, "String 1: {str}, {:?}", str.as_ptr()).unwrap();
+
+    let str2 = String::from("h2llo");
+    writeln!(vga, "String 2: {str2}, {:?}", str2.as_ptr()).unwrap();
+
+    writeln!(vga, "String 1 (again): {str}").unwrap();
+
+    drop(str);
+
+    let str3 = String::from("h3llo");
+    writeln!(vga, "String 3: {str3}, {:?}", str3.as_ptr()).unwrap();
 }
 
 pub fn halt() -> ! {

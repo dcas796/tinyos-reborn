@@ -1,6 +1,6 @@
 [unstable]
 json-target-spec = true
-build-std = ["core"]
+build-std = ["core", "alloc"]
 build-std-features = ["compiler-builtins-mem"]
 
 [build]

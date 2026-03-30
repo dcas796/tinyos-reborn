@@ -29,7 +29,7 @@ pub fn logger() -> Option<&'static mut Logger> {
     unsafe { (&raw mut LOGGER).as_mut_unchecked() }.as_mut()
 }
 
-pub fn log_init() {
+pub fn init_log() {
     unsafe {
         let mut port = Uart16550::new_port(SERIAL_PORT)
             .expect("Could not open serial port");
