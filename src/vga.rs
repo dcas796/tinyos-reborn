@@ -185,8 +185,8 @@ impl Vga<'_> {
     }
 }
 
-impl Default for Vga<'static> {
-    fn default() -> Vga<'static> {
+impl<'a> Default for Vga<'a> {
+    fn default() -> Vga<'a> {
         Self::new(
             unsafe {
                 core::slice::from_raw_parts_mut(
