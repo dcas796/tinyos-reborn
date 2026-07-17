@@ -161,6 +161,8 @@ impl Vga<'_> {
     }
 
     pub fn clear_screen(&mut self) {
+        self.cursor_x = 0;
+        self.cursor_y = 0;
         for y in 0..self.height {
             for x in 0..self.width {
                 self.buffer[y * self.width + x] = 0;
