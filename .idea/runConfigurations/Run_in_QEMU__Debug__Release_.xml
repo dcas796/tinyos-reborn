@@ -12,7 +12,8 @@
     <option name="EXECUTE_IN_TERMINAL" value="true" />
     <option name="EXECUTE_SCRIPT_FILE" value="true" />
     <envs>
-      <env name="DEBUG" value="1 RELEASE=1" />
+      <env name="DEBUG" value="1" />
+      <env name="RELEASE" value="1" />
     </envs>
     <method v="2">
       <option name="RunConfigurationTask" enabled="false" run_configuration_name="Build" run_configuration_type="CargoCommandRunConfiguration" run_configuration_target="RsBuildProfile:release" />

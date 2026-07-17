@@ -3,7 +3,11 @@
 set -e
 
 TARGET_NAME=tinyos-reborn
-TARGET_BIN_DIR=target/i686-freestanding/debug/
+if [ -n "$RELEASE" ]; then
+  TARGET_BIN_DIR=target/i686-freestanding/release/
+else
+  TARGET_BIN_DIR=target/i686-freestanding/debug/
+fi
 
 BOOTLOADER_DIR=x86_64-bootloader
 BOOTLOADER_BUILD_DIR=$BOOTLOADER_DIR/build
