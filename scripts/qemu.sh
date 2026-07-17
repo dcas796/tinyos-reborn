@@ -16,10 +16,10 @@ BOOTLOADER_BOOT_IMG=$BOOTLOADER_BUILD_DIR/boot.img
 SERIAL_FILE_PATH=serial
 
 QEMU=qemu-system-i386
-QEMUFLAGS=(-drive "format=raw,file=$BOOTLOADER_BOOT_IMG" -monitor stdio -serial "file:$SERIAL_FILE_PATH")
+QEMU_FLAGS=(-drive "format=raw,file=$BOOTLOADER_BOOT_IMG" -monitor stdio -serial "file:$SERIAL_FILE_PATH")
 
 if [ -n "$DEBUG" ]; then
-  QEMUFLAGS+=(-gdb "tcp::9000" -S)
+  QEMU_FLAGS+=(-gdb "tcp::9000" -S)
 fi
 
 cp $TARGET_BIN_DIR/$TARGET_NAME $BOOTLOADER_BOOT_BINARY_PATH
@@ -29,5 +29,5 @@ EOF
 
 make -C $BOOTLOADER_DIR clean all
 
-echo $QEMU ${QEMUFLAGS}
-$QEMU ${QEMUFLAGS}
+echo $QEMU "${QEMU_FLAGS[@]}"
+$QEMU "${QEMU_FLAGS[@]}"
