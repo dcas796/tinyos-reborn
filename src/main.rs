@@ -24,11 +24,17 @@ pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     let info = unsafe { &*info_raw };
 
-    init_modules(info);
+    /* Initialize modules */
+    init_log();
+    let regions = MemoryRegions::from(info.mem_regions);
+    init_allocator(&regions)
+        .expect("Failed to initialize memory allocator");
 
+    /* Log useful info */
     logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
     logln!("System info: {info:#x?}");
 
+    /* Initialize VGA */
     let mut vga = Vga::default();
     vga.clear_screen();
     vga.set_foreground(White);
@@ -42,12 +48,6 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     do_heap_test(&mut vga);
 
     halt();
-}
-
-fn init_modules(info: &sysinfo_t) {
-    init_log();
-    let memory_regions = MemoryRegions::from(info.mem_regions);
-    init_allocator(&memory_regions).expect("Failed to initialize memory allocator");
 }
 
 fn print_mem_regions(vga: &mut Vga, mem_regions: *mut sysinfo_memregion_t) {
