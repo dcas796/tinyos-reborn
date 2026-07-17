@@ -1,13 +1,18 @@
+use core::cell::{RefCell, RefMut};
 use uart_16550::backend::PioBackend;
 use uart_16550::{Config, Uart16550};
 
+struct UnsafeSync<T>(T);
+unsafe impl<T> Sync for UnsafeSync<T> {}
+
 const SERIAL_PORT: u16 = 0x3f8;
-static mut LOGGER: Option<Logger> = None;
+// SAFETY: single-threaded kernel, will never log in interrupts
+static LOGGER: UnsafeSync<RefCell<Option<Logger>>> = UnsafeSync(RefCell::new(None));
 
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {
-        if let Some(logger) = $crate::log::logger() {
+        if let Some(logger) = $crate::log::logger_mut().as_mut() {
             use core::fmt::Write;
             _ = core::write!(logger, $($arg)*);
         }
@@ -17,36 +22,34 @@ macro_rules! log {
 #[macro_export]
 macro_rules! logln {
     ($($arg:tt)*) => {
-        if let Some(logger) = $crate::log::logger() {
+        if let Some(logger) = $crate::log::logger_mut().as_mut() {
             use core::fmt::Write;
             _ = core::writeln!(logger, $($arg)*);
         }
     };
 }
 
-pub fn logger() -> Option<&'static mut Logger> {
-    // SAFETY: yes
-    unsafe { (&raw mut LOGGER).as_mut_unchecked() }.as_mut()
+pub fn logger_mut<'a>() -> RefMut<'a, Option<Logger>> {
+    LOGGER.0.borrow_mut()
 }
 
 pub fn init_log() {
-    unsafe {
-        let mut port = Uart16550::new_port(SERIAL_PORT)
-            .expect("Could not open serial port");
-        port
-            .init(Config::default())
-            .expect("Could not initialize serial port");
-        LOGGER = Some(port.into());
-    }
+    if LOGGER.0.borrow().is_some() { return; }
+    let mut port = unsafe { Uart16550::new_port(SERIAL_PORT) }
+        .expect("Could not open serial port");
+    port
+        .init(Config::default())
+        .expect("Could not initialize serial port");
+    *LOGGER.0.borrow_mut() = Some(Logger::new(port));
 }
 
 pub struct Logger {
     serial: Uart16550<PioBackend>,
 }
 
-impl From<Uart16550<PioBackend>> for Logger {
-    fn from(serial: Uart16550<PioBackend>) -> Self {
-        Self { serial }
+impl Logger {
+    fn new(serial: Uart16550<PioBackend>) -> Logger {
+        Logger { serial }
     }
 }
 
