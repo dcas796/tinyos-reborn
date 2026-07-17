@@ -1,7 +1,7 @@
 [unstable]
 json-target-spec = true
-build-std = ["core", "alloc"]
+build-std = ["core", "compiler_builtins", "alloc"]
 build-std-features = ["compiler-builtins-mem"]
 
 [build]
-target = ".cargo/i686-freestanding.json"
+target = "i686-freestanding.json"
