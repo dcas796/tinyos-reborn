@@ -11,7 +11,7 @@ and is not compatible with any other bootloader.
 ### Prerequisites
 
 - Rust (Nightly)
-- _See [x86_64-bootloader](https://github.com/dcas796/x86_64-bootloader) for the prerequisites for building the bootloader._
+- _See [x86_64-bootloader](https://github.com/dcas796/x86_64-bootloader#prerequisites) for the prerequisites for building the bootloader._
 
 ### Building a bootable image
 
