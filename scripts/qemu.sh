@@ -21,6 +21,9 @@ SERIAL_FILE_PATH=serial
 
 QEMU=qemu-system-i386
 QEMU_FLAGS=(-drive "format=raw,file=$BOOTLOADER_BOOT_IMG" -monitor stdio -serial "file:$SERIAL_FILE_PATH")
+if [ "$(uname)" = "Darwin" ]; then
+  QEMU_FLAGS+=(-display "cocoa,zoom-to-fit=on" -full-screen)
+fi
 
 if [ -n "$DEBUG" ]; then
   QEMU_FLAGS+=(-gdb "tcp::9000" -S)
