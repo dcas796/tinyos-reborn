@@ -6,11 +6,10 @@ use core::ptr::{null_mut, NonNull};
 use crate::kalloc::kernel_allocator::KernelMemoryAllocator;
 use crate::logln;
 use crate::sysinfo::MemoryRegions;
+use crate::util::interrupt_guard::InterruptGuard;
 
 #[global_allocator]
 static ALLOCATOR: GlobalAllocator = GlobalAllocator::empty();
-
-
 
 pub fn init_allocator(regions: &MemoryRegions) -> Result<(), &'static str> {
     ALLOCATOR.init(regions)
@@ -18,22 +17,6 @@ pub fn init_allocator(regions: &MemoryRegions) -> Result<(), &'static str> {
 
 struct GlobalAllocator {
     kernel_allocator: OnceCell<KernelMemoryAllocator>,
-}
-
-struct InterruptGuard;
-
-// TODO: Make this not crash QEMU
-impl InterruptGuard {
-    fn new() -> Self {
-        // unsafe { x86::irq::disable(); }
-        Self
-    }
-}
-
-impl Drop for InterruptGuard {
-    fn drop(&mut self) {
-        // unsafe { x86::irq::enable(); }
-    }
 }
 
 impl GlobalAllocator {

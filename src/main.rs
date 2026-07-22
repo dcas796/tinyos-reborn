@@ -15,6 +15,7 @@ mod sysinfo;
 mod vga;
 mod log;
 mod kalloc;
+mod util;
 
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
