@@ -37,16 +37,20 @@ pub fn logger_mut<'a>() -> RefMut<'a, Option<Logger>> {
 }
 
 pub fn init_log() {
-    if LOGGER.borrow().is_some() { return; }
-    let mut port = unsafe { Uart16550::new_port(SERIAL_PORT) }
-        .expect("Could not open serial port");
-    port
-        .init(Config::default())
-        .expect("Could not initialize serial port");
-    {
-        let _guard = InterruptGuard::new();
-        *LOGGER.borrow_mut() = Some(Logger::new(port));
-    };
+    fn _inner() -> Result<(), &'static str> {
+        if LOGGER.borrow().is_some() { return Ok(()); }
+        let mut port = unsafe { Uart16550::new_port(SERIAL_PORT) }
+            .map_err(|_| "Could not open serial port")?;
+        port
+            .init(Config::default())
+            .map_err(|_| "Could not initialize serial port")?;
+        {
+            let _guard = InterruptGuard::new();
+            *LOGGER.borrow_mut() = Some(Logger::new(port));
+        };
+        Ok(())
+    }
+    let _ = _inner(); /* Ignore the result. If in the future it is required for boot, just add `.unwrap()` */
 }
 
 pub struct Logger {
