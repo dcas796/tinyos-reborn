@@ -1,12 +1,20 @@
+#![feature(abi_x86_interrupt)]
 #![no_std]
 #![no_main]
 
 extern crate alloc;
 
+#[macro_use]
+extern crate lazy_static;
+
 use alloc::string::String;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::Vga;
 use core::fmt::Write;
+use core::slice;
+use x86::dtables::{sidt, DescriptorTablePointer};
+use crate::interrupt::entry::IdtEntry;
+use crate::interrupt::init_interrupts;
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
 use crate::vga::VgaColor::*;
@@ -15,6 +23,7 @@ mod sysinfo;
 mod vga;
 mod log;
 mod kalloc;
+mod interrupt;
 mod util;
 
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
@@ -26,6 +35,7 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     let info = unsafe { &*info_raw };
 
     /* Initialize modules */
+    init_interrupts();
     init_log();
     let regions = MemoryRegions::from(info.mem_regions);
     init_allocator(&regions)
@@ -47,6 +57,7 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     print_mem_regions(&mut vga, info.mem_regions);
 
     do_heap_test(&mut vga);
+    do_interrupt_test();
 
     halt();
 }
@@ -77,6 +88,24 @@ fn print_mem_regions(vga: &mut Vga, mem_regions: *mut sysinfo_memregion_t) {
 
     writeln!(vga, "Largest region base address: {Green}{:#x}{End}", largest_region.base_addr).unwrap();
     writeln!(vga, "Largest region size: {Green}{:.1} MB{End}", largest_region.size as f32 / 1_000_000.0).unwrap();
+}
+
+fn do_interrupt_test() {
+    let idt = unsafe {
+        let mut table = DescriptorTablePointer::<IdtEntry>::default();
+        sidt(&mut table);
+        slice::from_raw_parts(table.base, (table.limit as usize + 1) / size_of::<IdtEntry>())
+    };
+    logln!("IDT (0x80): {:#x?}", idt[0x80]);
+    let gdt = unsafe {
+        let mut table = DescriptorTablePointer::<u64>::default();
+        x86::dtables::sgdt(&mut table);
+        slice::from_raw_parts(table.base, (table.limit as usize + 1) / size_of::<u64>())
+    };
+    logln!("GDT: {:#x?}", gdt);
+    unsafe {
+        x86::int!(0x80);
+    };
 }
 
 fn do_heap_test(vga: &mut Vga) {
