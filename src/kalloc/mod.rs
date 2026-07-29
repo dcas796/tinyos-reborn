@@ -6,7 +6,7 @@ use core::ptr::{null_mut, NonNull};
 use crate::kalloc::kernel_allocator::KernelMemoryAllocator;
 use crate::logln;
 use crate::sysinfo::MemoryRegions;
-use crate::util::interrupt_guard::InterruptGuard;
+use crate::interrupt::interrupt_guard::InterruptGuard;
 
 #[global_allocator]
 static ALLOCATOR: GlobalAllocator = GlobalAllocator::empty();

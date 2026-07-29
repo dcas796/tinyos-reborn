@@ -1,7 +1,7 @@
 use core::cell::{RefCell, RefMut};
 use uart_16550::backend::PioBackend;
 use uart_16550::{Config, Uart16550};
-use crate::util::interrupt_guard::InterruptGuard;
+use crate::interrupt::interrupt_guard::InterruptGuard;
 use crate::util::unsafe_wrappers::UnsafeSync;
 
 const SERIAL_PORT: u16 = 0x3f8;
@@ -11,7 +11,7 @@ static LOGGER: UnsafeSync<RefCell<Option<Logger>>> = UnsafeSync::new(RefCell::ne
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {{
-        use $crate::util::interrupt_guard::InterruptGuard;
+        use $crate::interrupt::interrupt_guard::InterruptGuard;
         let _guard = InterruptGuard::new();
         if let Some(logger) = $crate::log::logger_mut().as_mut() {
             use core::fmt::Write;
@@ -23,7 +23,7 @@ macro_rules! log {
 #[macro_export]
 macro_rules! logln {
     ($($arg:tt)*) => {{
-        use $crate::util::interrupt_guard::InterruptGuard;
+        use $crate::interrupt::interrupt_guard::InterruptGuard;
         let _guard = InterruptGuard::new();
         if let Some(logger) = $crate::log::logger_mut().as_mut() {
             use core::fmt::Write;

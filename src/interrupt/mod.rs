@@ -4,6 +4,7 @@ use crate::interrupt::table::IDTR;
 pub mod entry;
 mod stack_frame;
 mod table;
+pub mod interrupt_guard;
 
 pub fn init_interrupts() {
     unsafe {
