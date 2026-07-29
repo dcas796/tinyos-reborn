@@ -1,18 +1,27 @@
+use core::cell::RefCell;
 use x86::dtables::DescriptorTablePointer;
 use crate::interrupt::stack_frame::InterruptStackFrame;
-use crate::logln;
-use crate::util::unsafe_wrappers::UnsafeSyncSend;
+use crate::{log, logln};
+use crate::interrupt::pic;
+use crate::util::unsafe_wrappers::{UnsafeSync, UnsafeSyncSend};
 
 macro_rules! table {
     ($(
-        #[int($n:literal)]
+        #[int($n:expr)]
         $(#[$attr:meta])*
         extern "x86-interrupt" fn $name:ident($($arg:tt)*) {
             $($body:tt)*
         }
     )*
     $(
-        default $dname:ident for $dn:literal
+        #[irq($qn:expr)]
+        $(#[$qattr:meta])*
+        extern "x86-interrupt" fn $qname:ident($($qarg:tt)*) {
+            $($qbody:tt)*
+        }
+    )*
+    $(
+        default $dname:ident for $dn:expr
     )*) => {
         $(
             $(#[$attr])*
@@ -20,7 +29,14 @@ macro_rules! table {
                 $($body)*
             }
         )*
-
+        $(
+            $(#[$qattr])*
+            extern "x86-interrupt" fn $qname($($qarg)*) {
+                use $crate::interrupt::irq_guard::IrqGuard;
+                let _guard = IrqGuard::new($qn);
+                $($qbody)*
+            }
+        )*
         $(
             extern "x86-interrupt" fn $dname(stack_frame: InterruptStackFrame) {
                 use $crate::logln;
@@ -30,44 +46,55 @@ macro_rules! table {
 
         lazy_static! {
             static ref IDT: [u64; 256] = {
+                use $crate::interrupt::IRQ_OFFSET;
                 use $crate::interrupt::entry::IdtEntry;
                 use x86::segmentation::{SegmentSelector, SystemDescriptorTypes32};
                 use x86::Ring;
 
                 const CODE_DESCRIPTOR_INDEX: u16 = 1;
 
+                fn set_table_entry(table: &mut [u64], n: usize, isr: *const ()) {
+                    table[n as usize] = IdtEntry::new(
+                        isr as u32,
+                        SegmentSelector::new(CODE_DESCRIPTOR_INDEX, Ring::Ring0),
+                        SystemDescriptorTypes32::InterruptGate32,
+                        Ring::Ring0
+                    ).into_u64();
+                }
+
                 let mut table = [0; 256];
-                $(
-                    table[$n] = IdtEntry::new(
-                        $name as *const () as u32,
-                        SegmentSelector::new(CODE_DESCRIPTOR_INDEX, Ring::Ring0),
-                        SystemDescriptorTypes32::InterruptGate32,
-                        Ring::Ring0
-                    ).into_u64();
-                )*
-                $(
-                    table[$dn] = IdtEntry::new(
-                        $dname as *const () as u32,
-                        SegmentSelector::new(CODE_DESCRIPTOR_INDEX, Ring::Ring0),
-                        SystemDescriptorTypes32::InterruptGate32,
-                        Ring::Ring0
-                    ).into_u64();
-                )*
+                $(set_table_entry(&mut table, $dn as usize, $dname as *const ());)*
+                $(set_table_entry(&mut table, $n as usize, $name as *const ());)*
+                $(set_table_entry(&mut table, (IRQ_OFFSET + $qn) as usize, $qname as *const ());)*
                 table
             };
         }
     };
 }
 
-lazy_static! {
-    pub static ref IDTR: UnsafeSyncSend<DescriptorTablePointer<u64>> =
-        DescriptorTablePointer::new_from_slice(&*IDT).into();
-}
+const PIC_IRQ: u8 = 0x00;
 
 table! {
     #[int(0x80)]
     extern "x86-interrupt" fn int_80(stack_frame: InterruptStackFrame) {
         logln!("Interrupt 0x80 (syscall) received: {stack_frame}");
+    }
+
+    #[irq(PIC_IRQ)]
+    extern "x86-interrupt" fn irq_0(_stack_frame: InterruptStackFrame) {
+        static COUNT_TICKS: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
+        static COUNT_TIMES: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
+
+        if *COUNT_TICKS.borrow() == 19 {
+            *COUNT_TICKS.borrow_mut() = 0;
+            *COUNT_TIMES.borrow_mut() += 1;
+            log!(".");
+            if *COUNT_TIMES.borrow() == 10 {
+                pic::set_irq_mask(PIC_IRQ);
+            }
+        } else {
+            *COUNT_TICKS.borrow_mut() += 1;
+        }
     }
 
     default int_00 for 0x00
@@ -92,4 +119,9 @@ table! {
     default int_13 for 0x13
     default int_14 for 0x14
     default int_15 for 0x15
+}
+
+lazy_static! {
+    pub static ref IDTR: UnsafeSyncSend<DescriptorTablePointer<u64>> =
+        DescriptorTablePointer::new_from_slice(&*IDT).into();
 }

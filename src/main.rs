@@ -17,6 +17,7 @@ use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::init_interrupts;
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
+use crate::timer::set_timer_freq;
 use crate::vga::VgaColor::*;
 
 mod sysinfo;
@@ -25,6 +26,7 @@ mod log;
 mod kalloc;
 mod interrupt;
 mod util;
+mod timer;
 
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -58,6 +60,7 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
 
     do_heap_test(&mut vga);
     do_interrupt_test();
+    do_timer_test();
 
     halt();
 }
@@ -90,6 +93,21 @@ fn print_mem_regions(vga: &mut Vga, mem_regions: *mut sysinfo_memregion_t) {
     writeln!(vga, "Largest region size: {Green}{:.1} MB{End}", largest_region.size as f32 / 1_000_000.0).unwrap();
 }
 
+fn do_heap_test(vga: &mut Vga) {
+    let str = String::from("hallo");
+    writeln!(vga, "String 1: {str}, {:?}", str.as_ptr()).unwrap();
+
+    let str2 = String::from("h2llo");
+    writeln!(vga, "String 2: {str2}, {:?}", str2.as_ptr()).unwrap();
+
+    writeln!(vga, "String 1 (again): {str}").unwrap();
+
+    drop(str);
+
+    let str3 = String::from("h3llo");
+    writeln!(vga, "String 3: {str3}, {:?}", str3.as_ptr()).unwrap();
+}
+
 fn do_interrupt_test() {
     let idt = unsafe {
         let mut table = DescriptorTablePointer::<IdtEntry>::default();
@@ -108,19 +126,10 @@ fn do_interrupt_test() {
     };
 }
 
-fn do_heap_test(vga: &mut Vga) {
-    let str = String::from("hallo");
-    writeln!(vga, "String 1: {str}, {:?}", str.as_ptr()).unwrap();
-
-    let str2 = String::from("h2llo");
-    writeln!(vga, "String 2: {str2}, {:?}", str2.as_ptr()).unwrap();
-
-    writeln!(vga, "String 1 (again): {str}").unwrap();
-
-    drop(str);
-
-    let str3 = String::from("h3llo");
-    writeln!(vga, "String 3: {str3}, {:?}", str3.as_ptr()).unwrap();
+fn do_timer_test() {
+    if let Err(e) = set_timer_freq(19) {
+        logln!("Failed timer test: {e:?}");
+    }
 }
 
 pub fn halt() -> ! {

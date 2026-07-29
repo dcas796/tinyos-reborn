@@ -1,10 +1,16 @@
 use x86::dtables::lidt;
+use crate::interrupt::pic::init_pic;
 use crate::interrupt::table::IDTR;
 
 pub mod entry;
 mod stack_frame;
 mod table;
+mod pic;
+mod wait;
 pub mod interrupt_guard;
+mod irq_guard;
+
+pub const IRQ_OFFSET: u8 = 0x20;
 
 pub fn init_interrupts() {
     unsafe {
@@ -12,4 +18,5 @@ pub fn init_interrupts() {
         lidt(&*IDTR);
         x86::irq::enable();
     }
+    init_pic(IRQ_OFFSET);
 }
