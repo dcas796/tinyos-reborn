@@ -139,7 +139,8 @@ fn do_timer_test() {
             *COUNT_TICKS.borrow_mut() = 0;
             *COUNT_TIMES.borrow_mut() += 1;
             log!(".");
-            if *COUNT_TIMES.borrow() == 10 {
+            if *COUNT_TIMES.borrow() == 3 {
+                logln!();
                 pic::set_irq_mask(PIT_IRQ);
             }
         } else {
@@ -166,5 +167,3 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     logln!("PANIC: {info}");
     halt();
 }
-
-

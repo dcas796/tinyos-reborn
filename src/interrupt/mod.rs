@@ -1,5 +1,5 @@
 use x86::dtables::lidt;
-use crate::interrupt::pic::init_pic;
+use crate::interrupt::pic::{clear_irq_mask, init_pic};
 use crate::interrupt::table::IDTR;
 
 pub mod entry;
@@ -19,4 +19,5 @@ pub fn init_interrupts() {
         x86::irq::enable();
     }
     init_pic(IRQ_OFFSET);
+    clear_irq_mask(0); // Unmask timer IRQ
 }
