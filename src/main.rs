@@ -8,16 +8,18 @@ extern crate alloc;
 extern crate lazy_static;
 
 use alloc::string::String;
+use core::cell::RefCell;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::Vga;
 use core::fmt::Write;
 use core::slice;
 use x86::dtables::{sidt, DescriptorTablePointer};
 use crate::interrupt::entry::IdtEntry;
-use crate::interrupt::init_interrupts;
+use crate::interrupt::{init_interrupts, pic};
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
-use crate::timer::set_timer_freq;
+use crate::timer::{set_timer_freq, set_timer_handler, PIT_IRQ};
+use crate::util::unsafe_wrappers::UnsafeSync;
 use crate::vga::VgaColor::*;
 
 mod sysinfo;
@@ -127,7 +129,25 @@ fn do_interrupt_test() {
 }
 
 fn do_timer_test() {
-    if let Err(e) = set_timer_freq(19) {
+    const TIMER_FREQ: u32 = 19;
+
+    set_timer_handler(|| {
+        static COUNT_TICKS: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
+        static COUNT_TIMES: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
+
+        if *COUNT_TICKS.borrow() == TIMER_FREQ as usize {
+            *COUNT_TICKS.borrow_mut() = 0;
+            *COUNT_TIMES.borrow_mut() += 1;
+            log!(".");
+            if *COUNT_TIMES.borrow() == 10 {
+                pic::set_irq_mask(PIT_IRQ);
+            }
+        } else {
+            *COUNT_TICKS.borrow_mut() += 1;
+        }
+    });
+
+    if let Err(e) = set_timer_freq(TIMER_FREQ) {
         logln!("Failed timer test: {e:?}");
     }
 }

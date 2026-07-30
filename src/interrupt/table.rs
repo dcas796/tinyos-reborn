@@ -1,9 +1,7 @@
-use core::cell::RefCell;
 use x86::dtables::DescriptorTablePointer;
 use crate::interrupt::stack_frame::InterruptStackFrame;
-use crate::{log, logln};
-use crate::interrupt::pic;
-use crate::util::unsafe_wrappers::{UnsafeSync, UnsafeSyncSend};
+use crate::{logln, timer};
+use crate::util::unsafe_wrappers::{UnsafeSyncSend};
 
 macro_rules! table {
     ($(
@@ -72,29 +70,15 @@ macro_rules! table {
     };
 }
 
-const PIC_IRQ: u8 = 0x00;
-
 table! {
     #[int(0x80)]
     extern "x86-interrupt" fn int_80(stack_frame: InterruptStackFrame) {
         logln!("Interrupt 0x80 (syscall) received: {stack_frame}");
     }
 
-    #[irq(PIC_IRQ)]
+    #[irq(timer::PIT_IRQ)]
     extern "x86-interrupt" fn irq_0(_stack_frame: InterruptStackFrame) {
-        static COUNT_TICKS: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
-        static COUNT_TIMES: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
-
-        if *COUNT_TICKS.borrow() == 19 {
-            *COUNT_TICKS.borrow_mut() = 0;
-            *COUNT_TIMES.borrow_mut() += 1;
-            log!(".");
-            if *COUNT_TIMES.borrow() == 10 {
-                pic::set_irq_mask(PIC_IRQ);
-            }
-        } else {
-            *COUNT_TICKS.borrow_mut() += 1;
-        }
+        timer::__interrupt();
     }
 
     default int_00 for 0x00

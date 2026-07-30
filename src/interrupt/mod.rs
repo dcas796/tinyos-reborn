@@ -5,7 +5,7 @@ use crate::interrupt::table::IDTR;
 pub mod entry;
 mod stack_frame;
 mod table;
-mod pic;
+pub mod pic;
 mod wait;
 pub mod interrupt_guard;
 mod irq_guard;
