@@ -1,6 +1,6 @@
 use x86::dtables::DescriptorTablePointer;
 use crate::interrupt::stack_frame::InterruptStackFrame;
-use crate::{logln, timer};
+use crate::{io, logln, timer};
 use crate::util::unsafe_wrappers::{UnsafeSyncSend};
 
 macro_rules! table {
@@ -79,6 +79,11 @@ table! {
     #[irq(timer::PIT_IRQ)]
     extern "x86-interrupt" fn irq_0(_stack_frame: InterruptStackFrame) {
         timer::__interrupt();
+    }
+
+    #[irq(io::keyboard::KEYBOARD_IRQ)]
+    extern "x86-interrupt" fn irq_1(_stack_frame: InterruptStackFrame) {
+        io::keyboard::__interrupt();
     }
 
     default int_00 for 0x00

@@ -29,6 +29,7 @@ mod kalloc;
 mod interrupt;
 mod util;
 mod timer;
+mod io;
 
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");

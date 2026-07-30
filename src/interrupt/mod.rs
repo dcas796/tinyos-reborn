@@ -20,4 +20,5 @@ pub fn init_interrupts() {
     }
     init_pic(IRQ_OFFSET);
     clear_irq_mask(0); // Unmask timer IRQ
+    clear_irq_mask(1); // Unmask keyboard IRQ
 }
