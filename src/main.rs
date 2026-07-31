@@ -10,8 +10,7 @@ extern crate lazy_static;
 use alloc::string::String;
 use core::cell::RefCell;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
-use crate::vga::Vga;
-use core::fmt::Write;
+use crate::vga::init_vga;
 use core::slice;
 use x86::dtables::{sidt, DescriptorTablePointer};
 use crate::interrupt::entry::IdtEntry;
@@ -45,45 +44,40 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     let regions = MemoryRegions::from(info.mem_regions);
     init_allocator(&regions)
         .expect("Failed to initialize memory allocator");
+    init_vga();
 
     /* Log useful info */
     logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
     logln!("System info: {info:#x?}");
 
-    /* Initialize VGA */
-    let mut vga = Vga::default();
-    vga.clear_screen();
-    vga.set_foreground(White);
-    vga.set_background(Black);
+    println!("{Magenta}{PACKAGE_NAME} {Gray}{PACKAGE_VERSION}{End}\n");
+    println!("Boot drive: {Yellow}{:#x}{End}", info.boot_drive);
 
-    writeln!(vga, "{Magenta}{PACKAGE_NAME} {Gray}{PACKAGE_VERSION}{End}\n").unwrap();
-    writeln!(vga, "Boot drive: {Yellow}{:#x}{End}", info.boot_drive).unwrap();
+    print_mem_regions(info.mem_regions);
 
-    print_mem_regions(&mut vga, info.mem_regions);
-
-    do_heap_test(&mut vga);
+    do_heap_test();
     do_interrupt_test();
     do_timer_test();
 
     halt();
 }
 
-fn print_mem_regions(vga: &mut Vga, mem_regions: *mut sysinfo_memregion_t) {
+fn print_mem_regions(mem_regions: *mut sysinfo_memregion_t) {
     let memory_regions = MemoryRegions::from(mem_regions);
 
-    writeln!(vga, "Reported memory layout: ").unwrap();
+    println!("Reported memory layout: ");
     for memory_region in memory_regions.iter() {
         let color = match memory_region.region_type {
             MemoryType::Usable => Green,
             MemoryType::ElfExecutable => LightBlue,
             _ => Red,
         };
-        writeln!(
-            vga, "{color}{:#9x} - {:?} - {:#x}{End}",
+        println!(
+            "{color}{:#9x} - {:?} - {:#x}{End}",
             memory_region.base_addr,
             memory_region.region_type,
             memory_region.base_addr + memory_region.size - 1
-        ).unwrap();
+        );
     }
 
     let largest_region = memory_regions
@@ -92,23 +86,23 @@ fn print_mem_regions(vga: &mut Vga, mem_regions: *mut sysinfo_memregion_t) {
         .max_by_key(|region| region.size)
         .expect("No usable memory regions found");
 
-    writeln!(vga, "Largest region base address: {Green}{:#x}{End}", largest_region.base_addr).unwrap();
-    writeln!(vga, "Largest region size: {Green}{:.1} MB{End}", largest_region.size as f32 / 1_000_000.0).unwrap();
+    println!("Largest region base address: {Green}{:#x}{End}", largest_region.base_addr);
+    println!("Largest region size: {Green}{:.1} MB{End}", largest_region.size as f32 / 1_000_000.0);
 }
 
-fn do_heap_test(vga: &mut Vga) {
+fn do_heap_test() {
     let str = String::from("hallo");
-    writeln!(vga, "String 1: {str}, {:?}", str.as_ptr()).unwrap();
+    println!("String 1: {str}, {:?}", str.as_ptr());
 
     let str2 = String::from("h2llo");
-    writeln!(vga, "String 2: {str2}, {:?}", str2.as_ptr()).unwrap();
+    println!("String 2: {str2}, {:?}", str2.as_ptr());
 
-    writeln!(vga, "String 1 (again): {str}").unwrap();
+    println!("String 1 (again): {str}");
 
     drop(str);
 
     let str3 = String::from("h3llo");
-    writeln!(vga, "String 3: {str3}, {:?}", str3.as_ptr()).unwrap();
+    println!("String 3: {str3}, {:?}", str3.as_ptr());
 }
 
 fn do_interrupt_test() {

@@ -1,10 +1,43 @@
-// === PRIVATE API ===
-
+use core::cell::RefCell;
 use core::fmt::{Display, Formatter, Write};
 use int_enum::IntEnum;
+use crate::util::interrupt_lock::{InterruptLock, InterruptLockRef};
+use crate::vga::VgaColor::{Black, White};
 
 const DEFAULT_VGA_WIDTH: usize = 80;
 const DEFAULT_VGA_HEIGHT: usize = 25;
+
+static VGA: InterruptLock<RefCell<Option<Vga>>> = InterruptLock::new(RefCell::new(None));
+
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => {{
+        if let Some(vga) = $crate::vga::vga().borrow_mut().as_mut() {
+            use core::fmt::Write;
+            _ = core::write!(vga, $($arg)*);
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! println {
+    ($($arg:tt)*) => {{
+        print!($($arg)*);
+        print!("\n");
+    }};
+}
+
+pub fn init_vga() {
+    let mut vga = Vga::default();
+    vga.clear_screen();
+    vga.set_foreground(White);
+    vga.set_background(Black);
+    *VGA.get().borrow_mut() = Some(vga);
+}
+
+pub fn vga<'a>() -> InterruptLockRef<'a, RefCell<Option<Vga<'static>>>> {
+    VGA.get()
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, IntEnum)]
@@ -44,7 +77,7 @@ pub struct VgaStyle {
 }
 
 impl VgaStyle {
-    pub fn new(foreground: VgaColor, background: VgaColor, blink: bool) -> Self {
+    pub const fn new(foreground: VgaColor, background: VgaColor, blink: bool) -> Self {
         Self { foreground, background, blink }
     }
 }
@@ -77,8 +110,6 @@ impl From<VgaChar> for u16 {
         word
     }
 }
-
-// === PUBLIC API ===
 
 pub struct Vga<'a> {
     buffer: &'a mut [u16],
