@@ -9,12 +9,13 @@ extern crate lazy_static;
 
 use alloc::string::String;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
-use crate::vga::init_vga;
+use crate::vga::{init_vga, VgaColor};
 use core::slice;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use x86::dtables::{sidt, DescriptorTablePointer};
 use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::{init_interrupts, pic};
+use crate::io::keyboard::{set_keyboard_handler, ScanCodeSet, KeyboardLayout, PhysicalKey};
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
 use crate::timer::{set_timer_freq, set_timer_handler, PIT_IRQ};
@@ -57,6 +58,7 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     do_heap_test();
     do_interrupt_test();
     do_timer_test();
+    do_keyboard_test();
 
     halt();
 }
@@ -145,6 +147,29 @@ fn do_timer_test() {
     if let Err(e) = set_timer_freq(TIMER_FREQ) {
         logln!("Failed timer test: {e:?}");
     }
+}
+
+fn do_keyboard_test() {
+    set_keyboard_handler(|scan_code, meta| {
+        static COLOR: AtomicU8 = AtomicU8::new(0x7);
+
+        if let Some(physical_key) = scan_code.physical_key(ScanCodeSet::default()) {
+            logln!("key: {physical_key:?}, is_down: {}", scan_code.is_down());
+            if scan_code.is_down() {
+                if let PhysicalKey::LeftGui | PhysicalKey::RightGui = physical_key {
+                    COLOR.fetch_add(1, Ordering::Relaxed);
+                    COLOR.fetch_and(0xf, Ordering::Relaxed);
+                } else if let Some(c) = physical_key.as_char(KeyboardLayout::default(), meta) {
+                    print!(
+                        "{}{c}{End}",
+                        VgaColor::try_from(COLOR.load(Ordering::Relaxed)).unwrap_or(End)
+                    );
+                }
+            }
+        } else {
+            logln!("Unrecognized scan code: {scan_code}");
+        }
+    })
 }
 
 pub fn halt() -> ! {
