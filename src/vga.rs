@@ -22,8 +22,10 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     ($($arg:tt)*) => {{
-        print!($($arg)*);
-        print!("\n");
+        if let Some(vga) = $crate::vga::vga().borrow_mut().as_mut() {
+            use core::fmt::Write;
+            _ = core::writeln!(vga, $($arg)*);
+        }
     }};
 }
 
