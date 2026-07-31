@@ -8,17 +8,16 @@ extern crate alloc;
 extern crate lazy_static;
 
 use alloc::string::String;
-use core::cell::RefCell;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::init_vga;
 use core::slice;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use x86::dtables::{sidt, DescriptorTablePointer};
 use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::{init_interrupts, pic};
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
 use crate::timer::{set_timer_freq, set_timer_handler, PIT_IRQ};
-use crate::util::unsafe_wrappers::UnsafeSync;
 use crate::vga::VgaColor::*;
 
 mod sysinfo;
@@ -127,19 +126,19 @@ fn do_timer_test() {
     const TIMER_FREQ: u32 = 19;
 
     set_timer_handler(|| {
-        static COUNT_TICKS: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
-        static COUNT_TIMES: UnsafeSync<RefCell<usize>> = UnsafeSync::new(RefCell::new(0));
+        static COUNT_TICKS: AtomicUsize = AtomicUsize::new(0);
+        static COUNT_TIMES: AtomicUsize = AtomicUsize::new(0);
 
-        if *COUNT_TICKS.borrow() == TIMER_FREQ as usize {
-            *COUNT_TICKS.borrow_mut() = 0;
-            *COUNT_TIMES.borrow_mut() += 1;
-            log!(".");
-            if *COUNT_TIMES.borrow() == 3 {
-                logln!();
+        if COUNT_TICKS.load(Ordering::Relaxed) == TIMER_FREQ as usize {
+            COUNT_TICKS.store(0, Ordering::Relaxed);
+            COUNT_TIMES.fetch_add(1, Ordering::Relaxed);
+            print!(".");
+            if COUNT_TIMES.load(Ordering::Relaxed) == 3 {
+                println!();
                 pic::set_irq_mask(PIT_IRQ);
             }
         } else {
-            *COUNT_TICKS.borrow_mut() += 1;
+            COUNT_TICKS.fetch_add(1, Ordering::Relaxed);
         }
     });
 
