@@ -1,8 +1,7 @@
 use core::cell::RefCell;
-use crate::interrupt::interrupt_guard::InterruptGuard;
 use crate::timer::command::{AccessMode, Channel, Command, CountingMode, OperatingMode};
 use crate::timer::error::InvalidFrequencyError;
-use crate::util::unsafe_wrappers::UnsafeSync;
+use crate::util::interrupt_lock::InterruptLock;
 
 mod command;
 pub mod error;
@@ -31,15 +30,14 @@ pub fn set_timer_freq(freq: u32) -> Result<(), InvalidFrequencyError> {
 }
 
 #[allow(clippy::type_complexity)]
-static TIMER_HANDLER: UnsafeSync<RefCell<Option<fn()>>> = UnsafeSync::new(RefCell::new(None));
+static TIMER_HANDLER: InterruptLock<RefCell<Option<fn()>>> = InterruptLock::new(RefCell::new(None));
 pub fn set_timer_handler(f: fn()) {
-    let _guard = InterruptGuard::new();
-    *TIMER_HANDLER.borrow_mut() = Some(f);
+    *TIMER_HANDLER.get().borrow_mut() = Some(f);
 }
 
 pub const PIT_IRQ: u8 = 0x00;
 pub fn __interrupt() {
-    if let Some(f) = &*TIMER_HANDLER.borrow() {
+    if let Some(f) = &*TIMER_HANDLER.get().borrow() {
         f()
     }
 }

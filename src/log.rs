@@ -1,19 +1,15 @@
-use core::cell::{RefCell, RefMut};
+use core::cell::RefCell;
 use uart_16550::backend::PioBackend;
 use uart_16550::{Config, Uart16550};
-use crate::interrupt::interrupt_guard::InterruptGuard;
-use crate::util::unsafe_wrappers::UnsafeSync;
+use crate::util::interrupt_lock::{InterruptLock, InterruptLockRef};
 
 const SERIAL_PORT: u16 = 0x3f8;
-// SAFETY: single-threaded kernel, will never log in interrupts
-static LOGGER: UnsafeSync<RefCell<Option<Logger>>> = UnsafeSync::new(RefCell::new(None));
+static LOGGER: InterruptLock<RefCell<Option<Logger>>> = InterruptLock::new(RefCell::new(None));
 
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {{
-        use $crate::interrupt::interrupt_guard::InterruptGuard;
-        let _guard = InterruptGuard::new();
-        if let Some(logger) = $crate::log::logger_mut().as_mut() {
+        if let Some(logger) = $crate::log::logger().borrow_mut().as_mut() {
             use core::fmt::Write;
             _ = core::write!(logger, $($arg)*);
         }
@@ -23,31 +19,26 @@ macro_rules! log {
 #[macro_export]
 macro_rules! logln {
     ($($arg:tt)*) => {{
-        use $crate::interrupt::interrupt_guard::InterruptGuard;
-        let _guard = InterruptGuard::new();
-        if let Some(logger) = $crate::log::logger_mut().as_mut() {
+        if let Some(logger) = $crate::log::logger().borrow_mut().as_mut() {
             use core::fmt::Write;
             _ = core::writeln!(logger, $($arg)*);
         }
     }};
 }
 
-pub fn logger_mut<'a>() -> RefMut<'a, Option<Logger>> {
-    LOGGER.borrow_mut()
+pub fn logger<'a>() -> InterruptLockRef<'a, RefCell<Option<Logger>>> {
+    LOGGER.get()
 }
 
 pub fn init_log() {
     fn _inner() -> Result<(), &'static str> {
-        if LOGGER.borrow().is_some() { return Ok(()); }
+        if LOGGER.get().borrow().is_some() { return Ok(()); }
         let mut port = unsafe { Uart16550::new_port(SERIAL_PORT) }
             .map_err(|_| "Could not open serial port")?;
         port
             .init(Config::default())
             .map_err(|_| "Could not initialize serial port")?;
-        {
-            let _guard = InterruptGuard::new();
-            *LOGGER.borrow_mut() = Some(Logger::new(port));
-        };
+        *LOGGER.get().borrow_mut() = Some(Logger::new(port));
         Ok(())
     }
     let _ = _inner(); /* Ignore the result. If in the future it is required for boot, just add `.unwrap()` */

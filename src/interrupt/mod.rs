@@ -7,7 +7,6 @@ mod stack_frame;
 mod table;
 pub mod pic;
 mod wait;
-pub mod interrupt_guard;
 mod irq_guard;
 
 pub const IRQ_OFFSET: u8 = 0x20;
