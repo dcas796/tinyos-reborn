@@ -30,6 +30,7 @@ pub struct sysinfo_memregion_t {
 pub struct sysinfo_t {
     pub boot_drive: u8,
     pub mem_regions: *mut sysinfo_memregion_t,
+    pub rsdp: *mut u8,
 }
 
 
