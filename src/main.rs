@@ -185,5 +185,6 @@ pub fn halt() -> ! {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     logln!("PANIC: {info}");
+    println!("{Red}PANIC: {info}{End}");
     halt();
 }
