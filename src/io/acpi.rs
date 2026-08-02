@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use core::ptr::NonNull;
-use crate::println;
+use crate::{println, util};
 use crate::vga::VgaColor::{End, LightRed};
 
 static FADT_SIGNATURE: &[u8; 4] = b"FACP";
@@ -91,11 +91,12 @@ impl Rsdt {
                 .ok_or("Invalid RSDT header checksum")?
         };
         let entries_ptr = unsafe {
-            ptr.as_ptr().add(size_of::<SdtHeader>()) as *const u32
+            ptr.add(size_of::<SdtHeader>())
         };
         let entries_len = (header.length as usize - size_of::<SdtHeader>()) / size_of::<u32>();
-        let entries = unsafe { core::slice::from_raw_parts(entries_ptr, entries_len) }
-            .to_vec().into_boxed_slice();
+        let entries = unsafe {
+            util::slice::boxed_slice_from_nonaligned_ptr(entries_ptr.as_ptr(), entries_len)
+        };
         Ok(Self { header, entries })
     }
 
