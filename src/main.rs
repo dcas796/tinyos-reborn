@@ -15,6 +15,7 @@ use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use x86::dtables::{sidt, DescriptorTablePointer};
 use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::{init_interrupts, pic};
+use crate::io::acpi::init_acpi;
 use crate::io::keyboard::{set_keyboard_handler, ScanCodeSet, KeyboardLayout, PhysicalKey};
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
@@ -46,10 +47,13 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     init_allocator(&regions)
         .expect("Failed to initialize memory allocator");
     init_vga();
+    let acpi = init_acpi(info.rsdp);
 
     /* Log useful info */
     logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
     logln!("System info: {info:#x?}");
+    logln!("ACPI OEM: {}", acpi.oem_id);
+    logln!("ACPI Revision: {}", acpi.revision);
 
     println!("{Magenta}{PACKAGE_NAME} {Gray}{PACKAGE_VERSION}{End}\n");
     println!("Boot drive: {Yellow}{:#x}{End}", info.boot_drive);
