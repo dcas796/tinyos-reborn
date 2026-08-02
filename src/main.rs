@@ -26,6 +26,7 @@ mod vga;
 mod log;
 mod kalloc;
 mod interrupt;
+#[macro_use]
 mod util;
 mod timer;
 mod io;
