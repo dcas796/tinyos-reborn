@@ -8,7 +8,6 @@ extern crate alloc;
 extern crate lazy_static;
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::{init_vga, VgaColor};
 use core::slice;
@@ -37,41 +36,50 @@ mod io;
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const DO_TESTS: bool = false;
+
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     let info = unsafe { &*info_raw };
 
-    /* Initialize modules */
+    /* Initialize interrupts */
     init_interrupts();
+
+    /* Initialize serial logger */
     init_log();
+    logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
+    logln!("System info: {info:#x?}");
+
+    /* Initialize kernel memory allocator */
     let regions = MemoryRegions::from(info.mem_regions);
     init_allocator(&regions)
         .expect("Failed to initialize memory allocator");
+
+    /* Initialize display */
     init_vga();
-    let acpi = init_acpi(info.rsdp);
-    let pci = init_pci(&acpi.rsdt)
-        .expect("Failed to initialize PCI");
-
-    /* Log useful info */
-    logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
-    logln!("System info: {info:#x?}");
-    logln!("ACPI OEM: {}", acpi.oem_id);
-    logln!("ACPI Revision: {}", acpi.revision);
-
     println!("{Magenta}{PACKAGE_NAME} {Gray}{PACKAGE_VERSION}{End}\n");
     println!("Boot drive: {Yellow}{:#x}{End}", info.boot_drive);
-
     print_mem_regions(info.mem_regions);
 
-    do_heap_test();
-    do_interrupt_test();
-    do_timer_test();
-    do_keyboard_test();
+    /* Get ACPI information */
+    let acpi = init_acpi(info.rsdp);
+    println!("ACPI OEM: {Yellow}{}{End}, Revision: {Yellow}{}{End}", acpi.oem_id, acpi.revision);
+    logln!("ACPI OEM: {}, Revision: {}", acpi.oem_id, acpi.revision);
 
-    logln!("Detected PCIe endpoints: {:#x?}", &pci.endpoints.iter().map(|e| {
-        (e.segment_group, e.bus, e.device, e.func, e.vendor, e.device_id, e.func_identifier)
-    }).collect::<Vec<_>>());
+    /* Enumerate PCIe devices */
+    print!("Enumerating PCIe devices... ");
+    let pci = init_pci(&acpi.rsdt)
+        .expect("Failed to initialize PCI");
+    println!("Found {Yellow}{}{End} endpoints.", pci.endpoints.len());
+    logln!("Found {} PCIe endpoints.", pci.endpoints.len());
+
+    if DO_TESTS {
+        do_heap_test();
+        do_interrupt_test();
+        do_timer_test();
+        do_keyboard_test();
+    }
 
     halt();
 }

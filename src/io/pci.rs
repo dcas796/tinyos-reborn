@@ -20,8 +20,6 @@ pub fn init_pci(rsdt: &Rsdt) -> Result<Pci, String> {
         util::slice::boxed_slice_from_nonaligned_ptr::<ConfigSpaceEntry>(entries_ptr, entries_len)
     };
 
-    logln!("Found {} PCI configuration space entries: {entries:#x?}", entries.len());
-
     let config_space = ConfigSpace {
         entries,
     };
