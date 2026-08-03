@@ -13,7 +13,7 @@ macro_rules! decoder_struct {
         }
         
         impl $name {
-            pub unsafe fn from_ptr(ptr: NonNull<u8>) -> Self {
+            pub unsafe fn from_ptr(ptr: ::core::ptr::NonNull<u8>) -> Self {
                 #[repr($($repr),*)]
                 $(#[$attr])*
                 struct __repr {
