@@ -8,6 +8,7 @@ extern crate alloc;
 extern crate lazy_static;
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::{init_vga, VgaColor};
 use core::slice;
@@ -17,6 +18,7 @@ use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::{init_interrupts, pic};
 use crate::io::acpi::init_acpi;
 use crate::io::keyboard::{set_keyboard_handler, ScanCodeSet, KeyboardLayout, PhysicalKey};
+use crate::io::pci::init_pci;
 use crate::kalloc::init_allocator;
 use crate::log::init_log;
 use crate::timer::{set_timer_freq, set_timer_handler, PIT_IRQ};
@@ -48,6 +50,8 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
         .expect("Failed to initialize memory allocator");
     init_vga();
     let acpi = init_acpi(info.rsdp);
+    let pci = init_pci(&acpi.rsdt)
+        .expect("Failed to initialize PCI");
 
     /* Log useful info */
     logln!("{PACKAGE_NAME} {PACKAGE_VERSION}");
@@ -64,6 +68,10 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     do_interrupt_test();
     do_timer_test();
     do_keyboard_test();
+
+    logln!("Detected PCIe endpoints: {:#x?}", &pci.endpoints.iter().map(|e| {
+        (e.segment_group, e.bus, e.device, e.func, e.vendor, e.device_id, e.func_identifier)
+    }).collect::<Vec<_>>());
 
     halt();
 }

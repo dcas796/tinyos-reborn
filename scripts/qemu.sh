@@ -20,7 +20,15 @@ BOOTLOADER_BOOT_IMG=$BOOTLOADER_BUILD_DIR/boot.img
 SERIAL_FILE_PATH=serial
 
 QEMU=qemu-system-i386
-QEMU_FLAGS=(-drive "format=raw,file=$BOOTLOADER_BOOT_IMG" -monitor stdio -serial "file:$SERIAL_FILE_PATH")
+QEMU_FLAGS=(
+  -M q35
+  -drive "id=disk0,if=none,format=raw,file=$BOOTLOADER_BOOT_IMG"
+  -device "ahci,id=ahci0"
+  -device "ide-hd,drive=disk0,bus=ahci0.0"
+  -monitor stdio
+  -serial "file:$SERIAL_FILE_PATH"
+)
+
 if [ "$(uname)" = "Darwin" ]; then
   QEMU_FLAGS+=(-display "cocoa,zoom-to-fit=on" -full-screen)
 fi
