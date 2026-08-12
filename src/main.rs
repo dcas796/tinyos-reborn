@@ -76,10 +76,14 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     logln!("Found {} PCIe endpoints.", pci.endpoints.len());
 
     if DO_TESTS {
-        println!("{Green}Performing tests...{End}");
+        println!("{Green}===================\nPerforming tests...\n==================={End}");
+        println!("{Cyan}Allocator{End}");
         do_heap_test();
+        println!("{Cyan}Interrupts{End}");
         do_interrupt_test();
+        println!("{Cyan}Timer{End}");
         do_timer_test();
+        println!("{Cyan}Keyboard{End}");
         do_keyboard_test();
     }
 
