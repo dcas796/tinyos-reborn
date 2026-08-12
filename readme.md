@@ -6,6 +6,8 @@ _Just for learning purposes._
 This kernel is specifically made to be loaded with my [x86_64-bootloader](https://github.com/dcas796/x86_64-bootloader) 
 and is not compatible with any other bootloader.
 
+![Preview](img/screen.gif)
+
 ## Build
 
 ### Prerequisites
