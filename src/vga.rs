@@ -2,7 +2,6 @@ use core::cell::RefCell;
 use core::fmt::{Display, Formatter, Write};
 use int_enum::IntEnum;
 use crate::util::interrupt_lock::{InterruptLock, InterruptLockRef};
-use crate::vga::VgaColor::{Black, White};
 
 const DEFAULT_VGA_WIDTH: usize = 80;
 const DEFAULT_VGA_HEIGHT: usize = 25;
@@ -54,7 +53,7 @@ pub enum VgaColor {
     White        = 0x7,
     Gray         = 0x8,
     LightBlue    = 0x9,
-    LightGreen   = 0xA,
+    // LightGreen   = 0xA,  // disabled due to weird bugs by the VGA hardware
     LightCyan    = 0xB,
     LightRed     = 0xC,
     LightMagenta = 0xD,
@@ -62,6 +61,7 @@ pub enum VgaColor {
     BrightWhite  = 0xF,
     End          = 0xFF,
 }
+use VgaColor::*;
 
 impl Display for VgaColor {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
@@ -86,7 +86,7 @@ impl VgaStyle {
 
 impl Default for VgaStyle {
     fn default() -> Self {
-        Self::new(VgaColor::White, VgaColor::Black, false)
+        Self::new(White, Black, false)
     }
 }
 
@@ -188,33 +188,30 @@ impl Vga<'_> {
         self.cursor_y += 1;
 
         if self.cursor_y >= self.height {
-            self.cursor_y = 0;
-            self.clear_screen();
+            self.cursor_y = self.height - 1;
+            self.scroll_up();
         }
+    }
+
+    pub fn scroll_up(&mut self) {
+        self.buffer.copy_within(self.width.., 0);
+        self.buffer[(self.height - 1) * self.width..].fill(0);
     }
 
     pub fn clear_screen(&mut self) {
         self.cursor_x = 0;
         self.cursor_y = 0;
-        for y in 0..self.height {
-            for x in 0..self.width {
-                self.buffer[y * self.width + x] = 0;
-            }
-        }
+        self.buffer.fill(0);
     }
-
-    pub fn style(&self) -> VgaStyle {
-        self.default_style
-    }
-
+    
     pub fn set_foreground(&mut self, color: VgaColor) {
-        if color == VgaColor::End { return }
+        if color == End { return }
         self.default_style.foreground = color;
         self.current_style = self.default_style;
     }
 
     pub fn set_background(&mut self, color: VgaColor) {
-        if color == VgaColor::End { return }
+        if color == End { return }
         self.default_style.background = color;
         self.current_style = self.default_style;
     }
