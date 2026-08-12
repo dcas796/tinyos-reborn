@@ -34,7 +34,12 @@ if [ "$(uname)" = "Darwin" ]; then
 fi
 
 if [ -n "$DEBUG" ]; then
-  QEMU_FLAGS+=(-gdb "tcp::9000" -S)
+  QEMU_FLAGS+=(
+  -gdb "tcp::9000"
+  -S
+  -no-reboot
+  -no-shutdown
+)
 fi
 
 cp $TARGET_BIN_DIR/$TARGET_NAME $BOOTLOADER_BOOT_BINARY_PATH
