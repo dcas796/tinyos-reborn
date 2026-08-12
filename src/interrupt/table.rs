@@ -1,7 +1,35 @@
+use core::cell::RefCell;
+use x86::Ring;
 use x86::dtables::DescriptorTablePointer;
+use x86::segmentation::{SegmentSelector, SystemDescriptorTypes32};
+use crate::interrupt::entry::IdtEntry;
+use crate::interrupt::IRQ_OFFSET;
 use crate::interrupt::stack_frame::InterruptStackFrame;
-use crate::{io, logln, timer};
-use crate::util::unsafe_wrappers::{UnsafeSyncSend};
+use crate::{io, timer};
+use crate::util::interrupt_guard::InterruptGuard;
+use crate::util::unsafe_wrappers::{UnsafeSync, UnsafeSyncSend};
+
+const CODE_DESCRIPTOR_INDEX: u16 = 1;
+
+static IDT: UnsafeSync<RefCell<[u64; 256]>> = UnsafeSync::new(RefCell::new([0; 256]));
+
+fn set_table_entry(table: &mut [u64], n: usize, isr: *const ()) {
+    table[n] = IdtEntry::new(
+        isr as u32,
+        SegmentSelector::new(CODE_DESCRIPTOR_INDEX, Ring::Ring0),
+        SystemDescriptorTypes32::InterruptGate32,
+        Ring::Ring0
+    ).into_u64();
+}
+
+pub fn register_int(int: u8, isr: extern "x86-interrupt" fn(InterruptStackFrame)) {
+    let _guard = InterruptGuard::new();
+    set_table_entry(&mut *IDT.borrow_mut(), int as usize, isr as *const ());
+}
+
+pub fn register_irq(irq: u8, isr: extern "x86-interrupt" fn(InterruptStackFrame)) {
+    register_int(IRQ_OFFSET + irq, isr);
+}
 
 macro_rules! table {
     ($(
@@ -28,54 +56,30 @@ macro_rules! table {
             }
         )*
         $(
-            $(#[$qattr])*
-            extern "x86-interrupt" fn $qname($($qarg)*) {
-                use $crate::interrupt::irq_guard::IrqGuard;
-                let _guard = IrqGuard::new($qn);
-                $($qbody)*
+            $crate::irq! {
+                #[irq($qn)]
+                $(#[$qattr])*
+                extern "x86-interrupt" fn $qname($($qarg)*) {
+                    $($qbody)*
+                }
             }
         )*
         $(
             extern "x86-interrupt" fn $dname(stack_frame: InterruptStackFrame) {
-                use $crate::logln;
-                logln!("Interrupt {:#02x} received: {stack_frame}", $dn);
+                $crate::logln!("Interrupt {:#02x} received: {stack_frame}", $dn);
             }
         )*
 
-        lazy_static! {
-            static ref IDT: [u64; 256] = {
-                use $crate::interrupt::IRQ_OFFSET;
-                use $crate::interrupt::entry::IdtEntry;
-                use x86::segmentation::{SegmentSelector, SystemDescriptorTypes32};
-                use x86::Ring;
-
-                const CODE_DESCRIPTOR_INDEX: u16 = 1;
-
-                fn set_table_entry(table: &mut [u64], n: usize, isr: *const ()) {
-                    table[n as usize] = IdtEntry::new(
-                        isr as u32,
-                        SegmentSelector::new(CODE_DESCRIPTOR_INDEX, Ring::Ring0),
-                        SystemDescriptorTypes32::InterruptGate32,
-                        Ring::Ring0
-                    ).into_u64();
-                }
-
-                let mut table = [0; 256];
-                $(set_table_entry(&mut table, $dn as usize, $dname as *const ());)*
-                $(set_table_entry(&mut table, $n as usize, $name as *const ());)*
-                $(set_table_entry(&mut table, (IRQ_OFFSET + $qn) as usize, $qname as *const ());)*
-                table
-            };
+        pub fn init_idt() {
+            let table = &mut *IDT.borrow_mut();
+            $(set_table_entry(table, $dn as usize, $dname as *const ());)*
+            $(set_table_entry(table, $n as usize, $name as *const ());)*
+            $(set_table_entry(table, (IRQ_OFFSET + $qn) as usize, $qname as *const ());)*
         }
     };
 }
 
 table! {
-    #[int(0x80)]
-    extern "x86-interrupt" fn int_80(stack_frame: InterruptStackFrame) {
-        logln!("Interrupt 0x80 (syscall) received: {stack_frame}");
-    }
-
     #[irq(timer::PIT_IRQ)]
     extern "x86-interrupt" fn irq_0(_stack_frame: InterruptStackFrame) {
         timer::__interrupt();
@@ -111,6 +115,7 @@ table! {
 }
 
 lazy_static! {
+    // SAFETY: When the IDT is being modified, interrupts are disabled.
     pub static ref IDTR: UnsafeSyncSend<DescriptorTablePointer<u64>> =
-        DescriptorTablePointer::new_from_slice(&*IDT).into();
+        DescriptorTablePointer::new_from_slice(unsafe { &*IDT.as_ptr() }).into();
 }

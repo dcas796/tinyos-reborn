@@ -14,7 +14,8 @@ use core::slice;
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use x86::dtables::{sidt, DescriptorTablePointer};
 use crate::interrupt::entry::IdtEntry;
-use crate::interrupt::{init_interrupts, pic};
+use crate::interrupt::{init_interrupts, pic, register_int};
+use crate::interrupt::stack_frame::InterruptStackFrame;
 use crate::io::acpi::init_acpi;
 use crate::io::keyboard::{set_keyboard_handler, ScanCodeSet, KeyboardLayout, PhysicalKey};
 use crate::io::pci::init_pci;
@@ -36,7 +37,7 @@ mod io;
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const DO_TESTS: bool = false;
+const DO_TESTS: bool = true;
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
@@ -75,6 +76,7 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     logln!("Found {} PCIe endpoints.", pci.endpoints.len());
 
     if DO_TESTS {
+        println!("{Green}Performing tests...{End}");
         do_heap_test();
         do_interrupt_test();
         do_timer_test();
@@ -128,6 +130,10 @@ fn do_heap_test() {
 }
 
 fn do_interrupt_test() {
+    extern "x86-interrupt" fn handler(_stack_frame: InterruptStackFrame) {
+        println!("Interrupt 0x80 (syscall) received!");
+    }
+
     let idt = unsafe {
         let mut table = DescriptorTablePointer::<IdtEntry>::default();
         sidt(&mut table);
@@ -140,6 +146,7 @@ fn do_interrupt_test() {
         slice::from_raw_parts(table.base, (table.limit as usize + 1) / size_of::<u64>())
     };
     logln!("GDT: {:#x?}", gdt);
+    register_int(0x80, handler);
     unsafe {
         x86::int!(0x80);
     };
