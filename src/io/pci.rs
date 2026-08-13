@@ -1,7 +1,8 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::ptr::NonNull;
+use core::ptr::{write_volatile, NonNull};
+use bitflags::bitflags;
 use int_enum::IntEnum;
 use crate::io::acpi::{Rsdt, SdtHeader};
 use crate::{logln, util};
@@ -195,6 +196,41 @@ pub struct FunctionIdentifier {
     pub prog_if: u8,
 }
 
+bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct Command: u16 {
+        const IO_SPACE                 = 1 << 0;
+        const MEMORY_SPACE             = 1 << 1;
+        const BUS_MASTER               = 1 << 2;
+        const SPECIAL_CYCLES           = 1 << 3;
+        const MEM_WRITE_INVALIDATE     = 1 << 4;
+        const VGA_PALETTE_SNOOP        = 1 << 5;
+        const PARITY_ERROR_RESPONSE    = 1 << 6;
+        const SERR_ENABLE              = 1 << 8;
+        const FAST_BACK_TO_BACK_ENABLE = 1 << 9;
+        const INTERRUPT_DISABLE        = 1 << 10;
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct Status: u16 {
+        const INTERRUPT_STATUS          = 1 << 3;
+        const CAPABILITIES_LIST         = 1 << 4;
+        const SIXTYSIX_MHZ_CAPABLE      = 1 << 5;
+        const FAST_BACK_TO_BACK_CAPABLE = 1 << 7;
+        const MASTER_DATA_PARITY_ERROR  = 1 << 8;
+        const DEVSEL_TIMING_FAST        = 0b00 << 9;
+        const DEVSEL_TIMING_MEDIUM      = 0b01 << 9;
+        const DEVSEL_TIMING_SLOW        = 0b10 << 9;
+        const SIGNALED_TARGET_ABORT     = 1 << 11;
+        const RECEIVED_TARGET_ABORT     = 1 << 12;
+        const RECEIVED_MASTER_ABORT     = 1 << 13;
+        const SIGNALED_SYSTEM_ERROR     = 1 << 14;
+        const DETECTED_PARITY_ERROR     = 1 << 15;
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Endpoint {
     pub segment_group: u16,
@@ -204,10 +240,32 @@ pub struct Endpoint {
 
     pub vendor: Vendor,
     pub device_id: u16,
+    command: *mut u16,
+    status: *mut u16,
     pub revision_id: u8,
     pub func_identifier: FunctionIdentifier,
 
     pub extended_header: ExtendedHeader,
+}
+
+impl Endpoint {
+    pub fn get_command(&self) -> Command {
+        let command = unsafe { self.command.read_volatile() };
+        Command::from_bits_truncate(command)
+    }
+
+    pub fn set_command(&mut self, command: Command) {
+        unsafe { write_volatile(self.command, command.bits()) }
+    }
+
+    pub fn get_status(&self) -> Status {
+        let status = unsafe { self.status.read_volatile() };
+        Status::from_bits_truncate(status)
+    }
+
+    pub fn set_status(&mut self, status: Status) {
+        unsafe { write_volatile(self.status, status.bits()) }
+    }
 }
 
 macro_rules! get_struct {
@@ -234,6 +292,8 @@ macro_rules! get_struct {
 
 impl ConfigSpace {
     const MULTIPLE_FUNCTIONS_NUM: u8 = 8;
+    const COMMAND_OFFSET: u16 = 0x004;
+    const STATUS_OFFSET: u16 = 0x006;
 
     get_struct!(name = get_common_header, offset = 0x000, struct_type = CommonHeader);
     get_struct!(name = get_general_device_header, offset = 0x010, struct_type = GeneralDeviceHeader);
@@ -270,6 +330,9 @@ impl ConfigSpace {
                 self.get_common_header(segment_group, bus, device, func)
             };
 
+            let command = self.get_address(segment_group, bus, device, func, Self::COMMAND_OFFSET) as *mut u16;
+            let status = self.get_address(segment_group, bus, device, func, Self::STATUS_OFFSET) as *mut u16;
+
             let header_type = HeaderType::from_byte(common_header.header_type)
                 .unwrap_or_else(|| {
                     panic!(
@@ -295,6 +358,8 @@ impl ConfigSpace {
                 func,
                 vendor,
                 device_id: common_header.device_id,
+                command,
+                status,
                 revision_id: common_header.revision_id,
                 func_identifier: FunctionIdentifier {
                     class: common_header.class_code,

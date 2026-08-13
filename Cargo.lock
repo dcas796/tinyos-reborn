@@ -101,6 +101,7 @@ dependencies = [
 name = "tinyos-reborn"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.1",
  "int-enum",
  "lazy_static",
  "uart_16550",
