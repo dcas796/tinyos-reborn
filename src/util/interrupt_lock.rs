@@ -22,19 +22,16 @@ impl<'a, T> core::ops::Deref for InterruptLockRef<'a, T> {
     }
 }
 
-pub struct InterruptLock<T> {
-    inner: T,
-}
+#[repr(transparent)]
+pub struct InterruptLock<T>(T);
 
 impl<T> InterruptLock<T> {
     pub const fn new(inner: T) -> Self {
-        Self {
-            inner,
-        }
+        Self(inner)
     }
     
     pub fn get(&self) -> InterruptLockRef<'_, T> {
-        InterruptLockRef::new(&self.inner)
+        InterruptLockRef::new(&self.0)
     }
 }
 

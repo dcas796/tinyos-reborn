@@ -2,6 +2,7 @@ use core::ops::Deref;
 
 macro_rules! unsafe_wrapper {
     ($name:ident, $($t:ty),+) => {
+        #[repr(transparent)]
         pub struct $name<T>(T);
         $(unsafe impl<T> $t for $name<T> {})+
 
