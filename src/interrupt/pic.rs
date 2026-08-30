@@ -50,7 +50,7 @@ pub fn init_pic(offset: u8) {
         io_wait();
 
         // Mask both PICs.
-        outb(PIC1_DATA, 0xff);
+        outb(PIC1_DATA, 0xfb); // Don't mask IRQ 2, as it is the connection between PIC1 and PIC2
         outb(PIC2_DATA, 0xff);
     }
 }
