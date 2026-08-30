@@ -100,8 +100,11 @@ impl KernelMemoryAllocator {
                 let node_addr = node_ptr.addr().get();
                 let value_addr = Self::value_addr(node_addr);
                 let aligned_value_addr = Self::align_up(value_addr, align);
-                let leftover_size = node.size - (aligned_value_addr - value_addr);
-                found = node.free && leftover_size >= size;
+                let size_diff = aligned_value_addr - value_addr;
+                if node.size >= size_diff {
+                    let leftover_size = node.size - size_diff;
+                    found = node.free && leftover_size >= size;
+                }
                 if !found {
                     current = node.next;
                 }
