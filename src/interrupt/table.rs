@@ -28,6 +28,7 @@ pub fn register_int(int: u8, isr: extern "x86-interrupt" fn(InterruptStackFrame)
 }
 
 pub fn register_irq(irq: u8, isr: extern "x86-interrupt" fn(InterruptStackFrame)) {
+    pic::clear_irq_mask(irq);
     register_int(IRQ_OFFSET + irq, isr);
 }
 
