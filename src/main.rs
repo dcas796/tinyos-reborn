@@ -81,15 +81,16 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
 
     /* Find disks */
     print!("Finding disks... ");
-    let controllers = find_disk_controllers(&pci.endpoints).collect::<Vec<_>>();
+    let mut controllers = find_disk_controllers(&pci.endpoints).collect::<Vec<_>>();
     println!("Found {Yellow}{}{End} disk controllers.", controllers.len());
     logln!("Found {} disk controllers.", controllers.len());
 
-    for mut controller in controllers {
+    let mut disk_indices = vec![];
+    for (controller_index, controller) in controllers.iter_mut().enumerate() {
         println!("- Disk controller: {Yellow}{controller}{End}");
         println!("  Connected disks:");
-        for index in controller.active_disks() {
-            let disk = match controller.get_disk(index) {
+        for disk_index in controller.active_disks() {
+            let disk = match controller.get_disk(disk_index) {
                 Some(disk) => disk,
                 None => continue,
             };
@@ -108,13 +109,31 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
                     continue;
                 },
             };
-            println!("  - Disk {Yellow}{index}{End}: {Yellow}{disk}{End}");
+            println!("  - Disk {Yellow}{disk_index}{End}: {Yellow}{disk}{End}");
             println!("    Model string: {Yellow}{}{End}", disk.model().unwrap_or("<Unknown>"));
             println!("    Block count: {Yellow}{}{End}", disk.block_count().unwrap_or(0));
             println!("    Block size: {Yellow}{}{End}", block_size);
             println!("    First 8 bytes: {:x?}", &bytes[0..8]);
+            disk_indices.push((controller_index, disk_index));
         }
     }
+
+    let boot_disk = match disk_indices.len() {
+        0 => {
+            println!("{Red}No readable disks found.{End}");
+            halt();
+        },
+        1 => {
+            println!("{Green}Selecting only readable disk as boot disk.{End}");
+            controllers[disk_indices[0].0].get_disk(disk_indices[0].1).unwrap()
+        },
+        _ => {
+            println!("{LightRed}Multiple readable disks found. Using first accessible disk as boot disk.{End}");
+            controllers[disk_indices[0].0].get_disk(disk_indices[0].1).unwrap()
+        }
+    };
+
+    println!("Boot disk: {Yellow}{boot_disk}{End}");
 
     if DO_TESTS {
         println!("{Green}===================\nPerforming tests...\n==================={End}");
