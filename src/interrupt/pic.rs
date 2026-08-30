@@ -1,13 +1,13 @@
 use x86::io::{inb, outb};
 use crate::interrupt::wait::io_wait;
 
-const PIC1        : u16 = 0x20;
-const PIC1_COMMAND: u16 = PIC1;
-const PIC1_DATA   : u16 = PIC1 + 1;
+const PIC1     : u16 = 0x20;
+const PIC1_CMD : u16 = PIC1;
+const PIC1_DATA: u16 = PIC1 + 1;
 
-const PIC2        : u16 = 0xA0;
-const PIC2_COMMAND: u16 = PIC2;
-const PIC2_DATA   : u16 = PIC2 + 1;
+const PIC2     : u16 = 0xA0;
+const PIC2_CMD : u16 = PIC2;
+const PIC2_DATA: u16 = PIC2 + 1;
 
 const PIC_EOI: u8 = 0x20;
 
@@ -16,6 +16,8 @@ const ICW1_SINGLE   : u8 = 0x02;    /* Single (cascade) mode */
 const ICW1_INTERVAL4: u8 = 0x04;    /* Call address interval 4 (8) */
 const ICW1_LEVEL    : u8 = 0x08;    /* Level triggered (edge) mode */
 const ICW1_INIT     : u8 = 0x10;    /* Initialization - required! */
+
+const OCW3_READ_ISR: u8 = 0x0B;
 
 const ICW4_8086      : u8 = 0x01;    /* 8086/88 (MCS-80/85) mode */
 const ICW4_AUTO      : u8 = 0x02;    /* Auto (normal) EOI */
@@ -31,9 +33,9 @@ pub fn init_pic(offset: u8) {
     let offset2 = offset + 8;
 
     unsafe {
-        outb(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
+        outb(PIC1_CMD, ICW1_INIT | ICW1_ICW4);  // starts the initialization sequence (in cascade mode)
         io_wait();
-        outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
+        outb(PIC2_CMD, ICW1_INIT | ICW1_ICW4);
         io_wait();
         outb(PIC1_DATA, offset1);                 // ICW2: Master PIC vector offset
         io_wait();
@@ -55,11 +57,28 @@ pub fn init_pic(offset: u8) {
     }
 }
 
+pub fn current_irq() -> Option<u8> {
+    unsafe {
+        outb(PIC1_CMD, OCW3_READ_ISR);
+        outb(PIC2_CMD, OCW3_READ_ISR);
+        let isr1 = inb(PIC1_CMD);
+        let isr2 = inb(PIC2_CMD);
+
+        if isr2 != 0 {
+            Some(8 + isr2.trailing_zeros() as u8)
+        } else if isr1 != 0 {
+            Some(isr1.trailing_zeros() as u8)
+        } else {
+            None
+        }
+    }
+}
+
 pub fn irq_end(irq: u8) {
     if irq >= 8 {
-        unsafe { outb(PIC2_COMMAND, PIC_EOI) };
+        unsafe { outb(PIC2_CMD, PIC_EOI) };
     }
-    unsafe { outb(PIC1_COMMAND, PIC_EOI) };
+    unsafe { outb(PIC1_CMD, PIC_EOI) };
 }
 
 pub fn set_irq_mask(mut line: u8) {
