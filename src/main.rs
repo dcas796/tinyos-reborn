@@ -2,12 +2,15 @@
 #![no_std]
 #![no_main]
 
+use crate::io::hal::disk::Disk;
 extern crate alloc;
 
 #[macro_use]
 extern crate lazy_static;
 
+use alloc::vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 use crate::sysinfo::{sysinfo_memregion_t, sysinfo_t, MemoryRegions, MemoryType};
 use crate::vga::{init_vga, VgaColor};
 use core::slice;
@@ -17,6 +20,7 @@ use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::{init_interrupts, pic, register_int};
 use crate::interrupt::stack_frame::InterruptStackFrame;
 use crate::io::acpi::init_acpi;
+use crate::io::disk::find_disk_controllers;
 use crate::io::keyboard::{set_keyboard_handler, ScanCodeSet, KeyboardLayout, PhysicalKey};
 use crate::io::pci::init_pci;
 use crate::kalloc::init_allocator;
@@ -74,6 +78,43 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
         .expect("Failed to initialize PCI");
     println!("Found {Yellow}{}{End} endpoints.", pci.endpoints.len());
     logln!("Found {} PCIe endpoints.", pci.endpoints.len());
+
+    /* Find disks */
+    print!("Finding disks... ");
+    let controllers = find_disk_controllers(&pci.endpoints).collect::<Vec<_>>();
+    println!("Found {Yellow}{}{End} disk controllers.", controllers.len());
+    logln!("Found {} disk controllers.", controllers.len());
+
+    for mut controller in controllers {
+        println!("- Disk controller: {Yellow}{controller}{End}");
+        println!("  Connected disks:");
+        for index in controller.active_disks() {
+            let disk = match controller.get_disk(index) {
+                Some(disk) => disk,
+                None => continue,
+            };
+            let block_size = match disk.block_size() {
+                Ok(block_size) => block_size,
+                Err(err) => {
+                    println!("{Red}Error while retrieving block size: {err}{End}");
+                    continue;
+                },
+            };
+            let mut bytes = vec![0u8; block_size as usize];
+            match disk.read_blocks(0, 1, &mut bytes) {
+                Ok(()) => {},
+                Err(err) => {
+                    println!("{Red}Error while reading first block: {err}{End}");
+                    continue;
+                },
+            };
+            println!("  - Disk {Yellow}{index}{End}: {Yellow}{disk}{End}");
+            println!("    Model string: {Yellow}{}{End}", disk.model().unwrap_or("<Unknown>"));
+            println!("    Block count: {Yellow}{}{End}", disk.block_count().unwrap_or(0));
+            println!("    Block size: {Yellow}{}{End}", block_size);
+            println!("    First 8 bytes: {:x?}", &bytes[0..8]);
+        }
+    }
 
     if DO_TESTS {
         println!("{Green}===================\nPerforming tests...\n==================={End}");

@@ -9,3 +9,5 @@ x86 = "0.52.0"
 int-enum = "1.2.0"
 lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
 bitflags = "2.13.1"
+thiserror = { version = "2.0.20", default-features = false }
+anyhow = { version = "1.0.104", default-features = false }
