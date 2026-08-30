@@ -3,9 +3,10 @@ use x86::Ring;
 use x86::dtables::DescriptorTablePointer;
 use x86::segmentation::{SegmentSelector, SystemDescriptorTypes32};
 use crate::interrupt::entry::IdtEntry;
-use crate::interrupt::IRQ_OFFSET;
+use crate::interrupt::{pic, IRQ_OFFSET};
 use crate::interrupt::stack_frame::InterruptStackFrame;
 use crate::{io, timer};
+use crate::interrupt::regs::Registers;
 use crate::util::interrupt_guard::InterruptGuard;
 use crate::util::unsafe_wrappers::{UnsafeSync, UnsafeSyncSend};
 
@@ -36,14 +37,14 @@ macro_rules! table {
     ($(
         #[int($n:expr)]
         $(#[$attr:meta])*
-        extern "x86-interrupt" fn $name:ident($($arg:tt)*) {
+        fn $name:ident($($arg:tt)*) {
             $($body:tt)*
         }
     )*
     $(
         #[irq($qn:expr)]
         $(#[$qattr:meta])*
-        extern "x86-interrupt" fn $qname:ident($($qarg:tt)*) {
+        fn $qname:ident($($qarg:tt)*) {
             $($qbody:tt)*
         }
     )*
@@ -51,16 +52,19 @@ macro_rules! table {
         default $dname:ident for $dn:expr
     )*) => {
         $(
-            $(#[$attr])*
-            extern "x86-interrupt" fn $name($($arg)*) {
-                $($body)*
+            $crate::int! {
+                #[int]
+                $(#[$attr])*
+                fn $name($($arg)*) {
+                    $($body)*
+                }
             }
         )*
         $(
-            $crate::irq! {
+            $crate::int! {
                 #[irq($qn)]
                 $(#[$qattr])*
-                extern "x86-interrupt" fn $qname($($qarg)*) {
+                fn $qname($($qarg)*) {
                     $($qbody)*
                 }
             }
@@ -82,12 +86,12 @@ macro_rules! table {
 
 table! {
     #[irq(timer::PIT_IRQ)]
-    extern "x86-interrupt" fn irq_0(_stack_frame: InterruptStackFrame) {
+    fn irq_0(_regs: Registers) {
         timer::__interrupt();
     }
 
     #[irq(io::keyboard::KEYBOARD_IRQ)]
-    extern "x86-interrupt" fn irq_1(_stack_frame: InterruptStackFrame) {
+    fn irq_1(_regs: Registers) {
         io::keyboard::__interrupt();
     }
 

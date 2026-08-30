@@ -8,6 +8,7 @@ mod table;
 pub mod pic;
 mod wait;
 pub mod irq_guard;
+pub mod regs;
 
 pub const IRQ_OFFSET: u8 = 0x20;
 
@@ -27,17 +28,31 @@ pub use table::register_int;
 pub use table::register_irq;
 
 #[macro_export]
-macro_rules! irq {
+macro_rules! int {
     (
-        #[irq($irq:expr)]
+        #[int]
         $(#[$attr:meta])*
-        extern "x86-interrupt" fn $name:ident($($arg:tt)*) {
+        $vis:vis fn $name:ident($rname:ident: $rty:ty) {
             $($body:tt)*
         }
     ) => {
         $(#[$attr])*
-        extern "x86-interrupt" fn $name($($arg)*) {
-            let _guard = $crate::interrupt::irq_guard::IrqGuard::new($irq);
+        extern "x86-interrupt" fn $name(__stack_frame: $crate::interrupt::stack_frame::InterruptStackFrame) {
+            let $rname: $rty = unsafe { $crate::save_registers!(__stack_frame) };
+            $($body)*
+        }
+    };
+    (
+        #[irq($irq:expr)]
+        $(#[$attr:meta])*
+        $vis:vis fn $name:ident($rname:ident: $rty:ty) {
+            $($body:tt)*
+        }
+    ) => {
+        $(#[$attr])*
+        extern "x86-interrupt" fn $name(__stack_frame: $crate::interrupt::stack_frame::InterruptStackFrame) {
+            let $rname: $rty = unsafe { $crate::save_registers!(__stack_frame) };
+            let __guard = $crate::interrupt::irq_guard::IrqGuard::new($irq);
             $($body)*
         }
     };
