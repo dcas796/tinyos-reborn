@@ -18,9 +18,9 @@ macro_rules! volatile {
 
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub struct Volatile<T: Copy>(T);
+pub struct Volatile<T>(T);
 
-impl<T: Copy> Volatile<T> {
+impl<T> Volatile<T> {
     pub const fn new(value: T) -> Self {
         Self(value)
     }
@@ -42,7 +42,7 @@ impl<T: Copy> Volatile<T> {
     }
 }
 
-impl<T: Copy, const N: usize> Volatile<[T; N]> {
+impl<T, const N: usize> Volatile<[T; N]> {
     pub fn read_at(&self, i: usize) -> T {
         unsafe { read_volatile(&self.0[i]) }
     }
