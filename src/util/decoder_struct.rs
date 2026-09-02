@@ -25,6 +25,20 @@ macro_rules! decoder_struct {
                     $($field: repr.$field),*
                 }
             }
+            
+            pub unsafe fn from_bytes(r: &[u8]) -> Self {
+                #[repr($($repr),*)]
+                $(#[$attr])*
+                struct __repr {
+                    $($field: $field_type),*
+                }
+                
+                assert!(r.len() >= ::core::mem::size_of::<__repr>());
+                let repr = unsafe { &*(r.as_ptr() as *const __repr) };
+                Self {
+                    $($field: repr.$field),*
+                }
+            }
         }
     };
 }
