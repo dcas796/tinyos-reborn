@@ -1,4 +1,5 @@
 #![feature(abi_x86_interrupt)]
+#![feature(slice_split_once)]
 #![no_std]
 #![no_main]
 
@@ -16,6 +17,9 @@ use crate::vga::{init_vga, VgaColor};
 use core::slice;
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use x86::dtables::{sidt, DescriptorTablePointer};
+use crate::fs::mount_filesystem;
+use crate::fs::path::Path;
+use crate::fs::vfs::{File, FileSystem};
 use crate::interrupt::entry::IdtEntry;
 use crate::interrupt::{init_interrupts, pic, register_int};
 use crate::interrupt::stack_frame::InterruptStackFrame;
@@ -37,6 +41,7 @@ mod interrupt;
 mod util;
 mod timer;
 mod io;
+mod fs;
 
 pub static PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 pub static PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -135,12 +140,20 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
 
     println!("Boot disk: {Yellow}{boot_disk}{End}");
 
+    /* Mount the file system */
+    println!("Mounting filesystem on boot disk...");
+    let mut file_system = mount_filesystem(boot_disk)
+        .expect("Failed to detect filesystem on boot disk");
+    println!("Mounted filesystem: {Yellow}{file_system}{End}");
+
     if DO_TESTS {
         println!("{Green}===================\nPerforming tests...\n==================={End}");
         println!("{Cyan}Allocator{End}");
         do_heap_test();
         println!("{Cyan}Interrupts{End}");
         do_interrupt_test();
+        println!("{Cyan}Filesystem{End}");
+        do_filesystem_test(&mut file_system);
         println!("{Cyan}Timer{End}");
         do_timer_test();
         println!("{Cyan}Keyboard{End}");
@@ -262,6 +275,36 @@ fn do_keyboard_test() {
             logln!("Unrecognized scan code: {scan_code}");
         }
     })
+}
+
+fn do_filesystem_test(file_system: &mut impl FileSystem) {
+    let mut options_file = file_system.open(Path::new("/boot/options.txt"))
+        .expect("Cannot open boot options file");
+    let options_metadata = options_file.metadata()
+        .expect("Cannot get boot options file metadata");
+    println!("Boot options metadata: {Yellow}{options_metadata:?}{End}");
+    let mut options_data = vec![0u8; options_metadata.size as usize];
+    options_file.read(&mut options_data)
+        .expect("Cannot read boot options file");
+    let options_str = str::from_utf8(&options_data)
+        .expect("Boot options file is not valid UTF-8");
+    println!("Boot options contents:\n{Yellow}{options_str}{End}");
+    drop(options_file);
+
+    let boot_binary = options_str
+        .lines()
+        .find_map(|line| line.strip_prefix("boot_binary="))
+        .expect("Boot options file does not contain a boot_binary option")
+        .trim();
+    let mut kernel_file = file_system.open(Path::new(boot_binary))
+        .expect("Cannot open kernel file");
+    let mut kernel_data = [0u8; 100];
+    kernel_file.read(&mut kernel_data)
+        .expect("Cannot read kernel file");
+    println!("Kernel file first 100 bytes: {Yellow}{kernel_data:x?}{End}");
+    kernel_file.read(&mut kernel_data)
+        .expect("Cannot read kernel file second 100 bytes");
+    println!("Kernel file second 100 bytes: {Yellow}{kernel_data:x?}{End}");
 }
 
 pub fn halt() -> ! {
