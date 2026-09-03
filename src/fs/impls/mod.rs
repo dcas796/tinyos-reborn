@@ -5,7 +5,7 @@ use crate::fs::vfs::Metadata;
 use crate::fs::vfs::SeekFrom;
 use alloc::boxed::Box;
 use core::fmt;
-use core::fmt::{Formatter, Pointer};
+use core::fmt::Formatter;
 use crate::fs;
 use crate::fs::vfs::DirEntry;
 use crate::fs::vfs::File;
