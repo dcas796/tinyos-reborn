@@ -62,7 +62,7 @@ impl KernelMemoryAllocator {
         Some(self.find_suitable_node(layout.size(), layout.align())?.1)
     }
 
-    pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
+    pub fn dealloc(&self, ptr: NonNull<u8>, _layout: Layout) {
         if let Some(node) = self.search_for_node_containing_ptr(ptr) {
             self.free_node_or_coalesce(node);
         }
@@ -70,8 +70,7 @@ impl KernelMemoryAllocator {
 
     pub fn alloc_zeroed(&self, layout: Layout) -> Option<NonNull<u8>> {
         let (node, addr) = self.find_suitable_node(layout.size(), layout.align())?;
-        unsafe { core::slice::from_raw_parts_mut(addr.as_ptr(), node.size) }
-            .fill(0);
+        unsafe { addr.write_bytes(0, node.size) };
         Some(addr)
     }
 
@@ -85,7 +84,12 @@ impl KernelMemoryAllocator {
             Some(ptr)
         } else {
             self.dealloc(ptr, layout);
-            self.alloc(Layout::from_size_align(new_size, layout.align()).unwrap())
+            let new_ptr =
+                self.alloc(Layout::from_size_align(new_size, layout.align()).ok()?);
+            if let Some(new_ptr) = new_ptr {
+                unsafe { new_ptr.copy_from(ptr, layout.size()) };
+            }
+            new_ptr
         }
     }
 }
