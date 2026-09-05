@@ -37,8 +37,8 @@ if [ -n "$DEBUG" ]; then
   QEMU_FLAGS+=(
   -gdb "tcp::9000"
   -S
-  -no-reboot
-  -no-shutdown
+#  -no-reboot
+#  -no-shutdown
 )
 fi
 
