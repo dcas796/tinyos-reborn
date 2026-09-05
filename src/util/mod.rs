@@ -5,3 +5,4 @@ pub mod interrupt_guard;
 pub mod decoder_struct;
 pub mod slice;
 pub mod volatile;
+pub mod date;
