@@ -12,6 +12,8 @@ pub enum Error {
     FileNotFound,
     #[error("Is directory")]
     IsDirectory,
+    #[error("Is not a directory")]
+    NotADirectory,
     #[error("File read out of bounds")]
     FileReadOutOfBounds,
     #[error("{0}")]

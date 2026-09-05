@@ -278,11 +278,19 @@ fn do_keyboard_test() {
 }
 
 fn do_filesystem_test(file_system: &mut impl FileSystem) {
+    let boot_dir = file_system.read_dir(Path::new("/boot"))
+        .expect("Cannot read /boot directory");
+    println!("Boot directory entries: {Yellow}[");
+    for entry in boot_dir {
+        println!("  {entry:?},");
+    }
+    println!("]{End}");
+
     let mut options_file = file_system.open(Path::new("/boot/options.txt"))
         .expect("Cannot open boot options file");
     let options_metadata = options_file.metadata()
         .expect("Cannot get boot options file metadata");
-    println!("Boot options metadata: {Yellow}{options_metadata:?}{End}");
+    println!("Boot options metadata: {Yellow}{options_metadata}{End}");
     let mut options_data = vec![0u8; options_metadata.size as usize];
     options_file.read(&mut options_data)
         .expect("Cannot read boot options file");

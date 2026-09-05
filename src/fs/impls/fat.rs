@@ -1,20 +1,78 @@
+use alloc::borrow::ToOwned;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use core::{fmt, iter};
+use core::fmt;
 use core::cmp::min;
 use core::fmt::Formatter;
+use core::ops::Not;
 use anyhow::bail;
 use bitflags::bitflags;
 use crate::fs;
 use crate::fs::impls::FileImpl;
-use crate::fs::path::Path;
+use crate::fs::path::{Path, PathBuf};
 use crate::fs::vfs;
 use crate::fs::vfs::{DirEntry, EntryKind, Metadata, SeekFrom};
 use crate::io::hal;
+use crate::util::date::Date;
 
 const FAT_MAX_LENGTH_SHORT_NAME: usize = 8;
 const FAT_MAX_LENGTH_SHORT_EXTENSION: usize = 3;
 const FAT_NAME_LEN: usize = FAT_MAX_LENGTH_SHORT_NAME + FAT_MAX_LENGTH_SHORT_EXTENSION;
+
+fn convert_to_83_filename_with_terminator(name: &[u8]) -> Option<[u8; FAT_NAME_LEN]> {
+    let mut filename = [b' '; FAT_NAME_LEN];
+    if let Some((name, extension)) = name.split_once(|b| *b == b'.') {
+        if name.len() > FAT_MAX_LENGTH_SHORT_NAME || extension.len() > FAT_MAX_LENGTH_SHORT_EXTENSION {
+            return None;
+        }
+        filename[..name.len()]
+            .copy_from_slice(name);
+        filename[FAT_MAX_LENGTH_SHORT_NAME..FAT_MAX_LENGTH_SHORT_NAME + extension.len()]
+            .copy_from_slice(extension);
+    } else {
+        if name.len() > FAT_MAX_LENGTH_SHORT_NAME {
+            return None;
+        }
+        filename[..name.len()].copy_from_slice(name);
+    }
+
+    filename.make_ascii_uppercase();
+    Some(filename)
+}
+
+fn convert_from_83_filename(name: &[u8; FAT_NAME_LEN]) -> Vec<u8> {
+    let mut filename = name[..FAT_MAX_LENGTH_SHORT_NAME]
+        .iter()
+        .take_while(|&&b| b != b' ')
+        .copied()
+        .collect::<Vec<u8>>();
+    let extension = &name[FAT_MAX_LENGTH_SHORT_NAME..];
+
+    if extension[0] != b' ' {
+        filename.push(b'.');
+        filename.extend(
+            extension
+                .iter()
+                .take_while(|&&b| b != b' ')
+                .copied()
+        );
+    }
+
+    filename
+}
+
+fn fat_date_to_unix(date: u16, time: u16) -> Option<Date> {
+    let year = ((date >> 9) & 0x7F) + 1980;
+    let month = (date >> 5) & 0x0F;
+    let day = date & 0x1F;
+
+    let hour = (time >> 11) & 0x1F;
+    let minute = (time >> 5) & 0x3F;
+    let second = (time & 0x1F) * 2;
+
+    Date::from_date_time(year, month as u8, day as u8, hour as u8, minute as u8, second as u8)
+}
 
 decoder_struct! {
     #[repr(C, packed)]
@@ -68,7 +126,7 @@ decoder_struct! {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 struct FatDirent {
     name: [u8; 11],
     attr: u8,
@@ -85,8 +143,32 @@ struct FatDirent {
 }
 
 impl FatDirent {
+    fn root_dir(fst_cluster: u32) -> Self {
+        let mut _self = Self {
+            name: [b' '; 11],
+            attr: 0,
+            ntres: 0,
+            crt_time_tenth: 0,
+            crt_time: 0,
+            crt_date: 0,
+            lst_acc_date: 0,
+            fst_clus_hi: 0,
+            wrt_time: 0,
+            wrt_date: 0,
+            fst_clus_lo: 0,
+            file_size: 0,
+        };
+        _self.set_attr(FatAttr::DIRECTORY);
+        _self.set_fst_clus(fst_cluster);
+        _self
+    }
+
     fn attr(&self) -> FatAttr {
         FatAttr::from_bits_truncate(self.attr)
+    }
+
+    fn set_attr(&mut self, attr: FatAttr) {
+        self.attr = attr.bits();
     }
 
     fn fst_clus(&self) -> u32 {
@@ -96,6 +178,18 @@ impl FatDirent {
     fn set_fst_clus(&mut self, fst_clus: u32) {
         self.fst_clus_lo = fst_clus as u16;
         self.fst_clus_hi = (fst_clus >> 16) as u16;
+    }
+
+    fn to_dir_entry(self) -> Option<DirEntry> {
+        self.attr().is_long_name().not().then(|| DirEntry {
+            name: String::from_utf8(convert_from_83_filename(&self.name))
+                .unwrap_or_else(|_| "<invalid>".to_string()),
+            kind: if self.attr().contains(FatAttr::DIRECTORY) {
+                EntryKind::Directory
+            } else {
+                EntryKind::File
+            },
+        })
     }
 }
 
@@ -134,7 +228,7 @@ impl FatAttr {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 enum ClusterType {
     Valid,
     End,
@@ -154,40 +248,21 @@ enum FatBpbExt {
     Fat32(FatBpbExt32),
 }
 
-fn convert_to_83_filename_with_terminator(name: &[u8]) -> Option<[u8; FAT_NAME_LEN]> {
-    let mut filename = [b' '; FAT_NAME_LEN];
-    if let Some((name, extension)) = name.split_once(|b| *b == b'.') {
-        if name.len() > FAT_MAX_LENGTH_SHORT_NAME || extension.len() > FAT_MAX_LENGTH_SHORT_EXTENSION {
-            return None;
-        }
-        filename[..name.len()]
-            .copy_from_slice(name);
-        filename[FAT_MAX_LENGTH_SHORT_NAME..FAT_MAX_LENGTH_SHORT_NAME + extension.len()]
-            .copy_from_slice(extension);
-    } else {
-        if name.len() > FAT_MAX_LENGTH_SHORT_NAME {
-            return None;
-        }
-        filename[..name.len()].copy_from_slice(name);
-    }
-
-    filename.make_ascii_uppercase();
-    Some(filename)
-}
-
 
 pub struct FatFile<'a, 'b> {
     fat: &'b mut FatFileSystem<'a>,
     entry: FatDirent,
     offset: u32,
+    path: PathBuf,
 }
 
 impl<'a, 'b> FatFile<'a, 'b> {
-    fn new(fat: &'b mut FatFileSystem<'a>, entry: FatDirent) -> Self {
+    fn new(fat: &'b mut FatFileSystem<'a>, entry: FatDirent, path: PathBuf) -> Self {
         Self {
             fat,
             entry,
             offset: 0,
+            path,
         }
     }
 }
@@ -200,11 +275,9 @@ impl vfs::File for FatFile<'_, '_> {
         let mut start_cluster = self.entry.fst_clus();
 
         for _ in 0..cluster_offset {
-            let cluster_type: ClusterType;
-            (cluster_type, start_cluster) = self.fat.next_cluster_not_bad(start_cluster);
-            if cluster_type != ClusterType::Valid {
-                return Err(fs::error::Error::FileReadOutOfBounds);
-            }
+            start_cluster = self.fat
+                .next_cluster_not_bad(start_cluster)
+                .map_err(|_| fs::error::Error::FileReadOutOfBounds)?;
         }
 
         let mut current_cluster = start_cluster;
@@ -245,11 +318,9 @@ impl vfs::File for FatFile<'_, '_> {
             length -= length_to_read;
 
             if length > 0 {
-                let cluster_type: ClusterType;
-                (cluster_type, current_cluster) = self.fat.next_cluster_not_bad(current_cluster);
-                if cluster_type != ClusterType::Valid {
-                    return Err(fs::error::Error::FileReadOutOfBounds);
-                }
+                current_cluster = self.fat
+                    .next_cluster_not_bad(current_cluster)
+                    .map_err(|_| fs::error::Error::FileReadOutOfBounds)?;
             }
         }
 
@@ -262,22 +333,44 @@ impl vfs::File for FatFile<'_, '_> {
         todo!()
     }
 
-    fn flush(&mut self) -> crate::fs::Result<()> {
+    fn flush(&mut self) -> fs::Result<()> {
         todo!()
     }
 
     fn seek(&mut self, pos: SeekFrom) -> fs::Result<u64> {
-        todo!()
+        self.offset = match pos {
+            SeekFrom::Start(o) => o
+                .try_into()
+                .map_err(|e| fs::error::Error::Other(anyhow::Error::from(e)))?,
+            SeekFrom::End(o) => (self.entry.file_size as i64)
+                .checked_add(o)
+                .ok_or(fs::error::Error::FileReadOutOfBounds)?
+                .checked_sub(1)
+                .ok_or(fs::error::Error::FileReadOutOfBounds)?
+                .try_into()
+                .map_err(|e| fs::error::Error::Other(anyhow::Error::from(e)))?,
+            SeekFrom::Current(o) => (self.offset as i64)
+                .checked_add(o)
+                .ok_or(fs::error::Error::FileReadOutOfBounds)?
+                .try_into()
+                .map_err(|e| fs::error::Error::Other(anyhow::Error::from(e)))?,
+        };
+        Ok(self.offset as u64)
     }
 
     fn metadata(&self) -> fs::Result<Metadata> {
         Ok(Metadata {
+            path: self.path.clone(),
             kind: if self.entry.attr().contains(FatAttr::DIRECTORY) {
                 EntryKind::Directory
             } else {
                 EntryKind::File
             },
             size: self.entry.file_size as u64,
+            creation_date: fat_date_to_unix(self.entry.crt_date, self.entry.crt_time)
+                .unwrap_or_default(),
+            last_modified_date: fat_date_to_unix(self.entry.wrt_date, self.entry.wrt_time)
+                .unwrap_or_default(),
         })
     }
 
@@ -288,7 +381,79 @@ impl vfs::File for FatFile<'_, '_> {
 
 impl fmt::Display for FatFile<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        todo!()
+        write!(
+            f,
+            "FatFile(\"{}\")",
+            String::from_utf8(convert_from_83_filename(&self.entry.name))
+                .unwrap_or_else(|_| "<invalid>".to_string())
+        )
+    }
+}
+
+struct DirentIterator<'a, 'b> {
+    fat: &'b mut FatFileSystem<'a>,
+    current_cluster: Result<u32, ClusterType>,
+    buffer: Vec<u8>,
+    buffer_offset: usize,
+}
+
+impl<'a, 'b> DirentIterator<'a, 'b> {
+    fn new(
+        fat: &'b mut FatFileSystem<'a>,
+        current_cluster: Result<u32, ClusterType>
+    ) -> fs::Result<Self> {
+        let buffer = if let Ok(current_cluster) = current_cluster {
+            let sector_count = fat.bpb.sectors_per_cluster;
+            let mut buffer = vec![
+                0u8;
+                sector_count as usize * fat.bpb.bytes_per_sector as usize
+            ];
+            fat.disk.read_blocks(
+                fat.cluster_to_lba(current_cluster),
+                sector_count as u32,
+                &mut buffer,
+            ).map_err(fs::error::Error::Other)?;
+            buffer
+        } else {
+            Vec::new()
+        };
+        Ok(Self {
+            fat,
+            current_cluster,
+            buffer,
+            buffer_offset: 0,
+        })
+    }
+}
+
+impl<'a, 'b> Iterator for DirentIterator<'a, 'b> {
+    type Item = fs::Result<FatDirent>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut current_cluster = self.current_cluster.ok()?;
+        if self.buffer_offset + size_of::<FatDirent>() > self.buffer.len() {
+            self.current_cluster = self.fat.next_cluster_not_bad(current_cluster);
+            current_cluster = self.current_cluster.ok()?;
+            match self.fat.disk.read_blocks(
+                self.fat.cluster_to_lba(current_cluster),
+                self.fat.bpb.sectors_per_cluster as u32,
+                &mut self.buffer,
+            ) {
+                Ok(()) => {},
+                Err(e) => return Some(Err(fs::error::Error::Other(e))),
+            };
+            self.buffer_offset = 0;
+        }
+        let dirent = unsafe {
+            core::ptr::read(
+                self.buffer[self.buffer_offset..].as_ptr() as *const FatDirent
+            )
+        };
+        if dirent.name[0] == 0 {
+            self.current_cluster = Err(ClusterType::End);
+            return None;
+        }
+        self.buffer_offset += size_of::<FatDirent>();
+        Some(Ok(dirent))
     }
 }
 
@@ -348,7 +513,7 @@ impl<'a> FatFileSystem<'a> {
         };
         let first_fat_sector = bpb.reserved_sectors as u32;
         let root_dir_sectors = if bpb.bytes_per_sector != 0 {
-            (bpb.root_entry_count * 32 + (bpb.bytes_per_sector - 1)) / bpb.bytes_per_sector
+            (bpb.root_entry_count * 32).div_ceil(bpb.bytes_per_sector)
         } else {
             bail!("Corrupt FAT filesystem: invalid bytes per sector in BPB");
         };
@@ -427,7 +592,30 @@ impl<'a> FatFileSystem<'a> {
         self.first_data_sector as u64 + (cluster as u64 - 2) * self.bpb.sectors_per_cluster as u64
     }
 
-    fn next_cluster(&self, cluster: u32) -> (ClusterType, u32) {
+    fn get_cluster_type(&self, cluster: u32) -> ClusterType {
+        match self.fat_type {
+            FatType::Fat12 => match cluster {
+                0x000..=0xFF6 => ClusterType::Valid,
+                0xFF7 => ClusterType::Bad,
+                0xFF8..=0xFFF => ClusterType::End,
+                _ => ClusterType::Unknown,
+            },
+            FatType::Fat16 => match cluster {
+                0x0000..=0xFFF6 => ClusterType::Valid,
+                0xFFF7 => ClusterType::Bad,
+                0xFFF8..=0xFFFF => ClusterType::End,
+                _ => ClusterType::Unknown,
+            },
+            FatType::Fat32 => match cluster {
+                0x00000000..=0x0FFFFFF6 => ClusterType::Valid,
+                0x0FFFFFF7 => ClusterType::Bad,
+                0x0FFFFFF8..=0x0FFFFFFF => ClusterType::End,
+                _ => ClusterType::Unknown,
+            }
+        }
+    }
+
+    fn next_cluster(&self, cluster: u32) -> u32 {
         let fat_offset = match self.fat_type {
             FatType::Fat12 => cluster + cluster / 2,
             FatType::Fat16 => cluster * 2,
@@ -445,59 +633,55 @@ impl<'a> FatFileSystem<'a> {
                 } else {
                     value & 0xFFF
                 };
-                let cluster_type = match next_cluster {
-                    0x000..=0xFF6 => ClusterType::Valid,
-                    0xFF7 => ClusterType::Bad,
-                    0xFF8..=0xFFF => ClusterType::End,
-                    _ => ClusterType::Unknown,
-                };
-                (cluster_type, next_cluster as u32)
+                next_cluster as u32
             },
             FatType::Fat16 => {
                 let next_cluster = u16::from_le_bytes([
                     self.fat_cache[fat_offset as usize],
                     self.fat_cache[fat_offset as usize + 1],
                 ]);
-                let cluster_type = match next_cluster {
-                    0x0000..=0xFFF6 => ClusterType::Valid,
-                    0xFFF7 => ClusterType::Bad,
-                    0xFFF8..=0xFFFF => ClusterType::End,
-                    _ => ClusterType::Unknown,
-                };
-                (cluster_type, next_cluster as u32)
+                next_cluster as u32
             },
             FatType::Fat32 => {
-                let next_cluster = u32::from_le_bytes([
+                u32::from_le_bytes([
                     self.fat_cache[fat_offset as usize],
                     self.fat_cache[fat_offset as usize + 1],
                     self.fat_cache[fat_offset as usize + 2],
                     self.fat_cache[fat_offset as usize + 3],
-                ]) & 0x0FFFFFFF;
-                let cluster_type = match next_cluster {
-                    0x00000000..=0x0FFFFFF6 => ClusterType::Valid,
-                    0x0FFFFFF7 => ClusterType::Bad,
-                    0x0FFFFFF8..=0x0FFFFFFF => ClusterType::End,
-                    _ => ClusterType::Unknown,
-                };
-                (cluster_type, next_cluster)
+                ]) & 0x0FFFFFFF
             }
         }
     }
 
-    fn next_cluster_not_bad(&self, cluster: u32) -> (ClusterType, u32) {
-        let (mut cluster_type, mut next_cluster) = self.next_cluster(cluster);
+    fn next_cluster_not_bad(&self, cluster: u32) -> Result<u32, ClusterType> {
+        let mut next_cluster = self.next_cluster(cluster);
+        let mut cluster_type = self.get_cluster_type(next_cluster);
         while cluster_type == ClusterType::Bad {
-            (cluster_type, next_cluster) = self.next_cluster(next_cluster);
+            next_cluster = self.next_cluster(next_cluster);
+            cluster_type = self.get_cluster_type(next_cluster);
         }
-        (cluster_type, next_cluster)
+        if cluster_type == ClusterType::Valid {
+            Ok(next_cluster)
+        } else {
+            Err(cluster_type)
+        }
     }
-}
 
-#[allow(refining_impl_trait)]
-impl<'a> vfs::FileSystem for FatFileSystem<'a> {
-    fn open(&mut self, path: &Path) -> fs::Result<FileImpl<'a, '_>> {
-        path.is_absolute().ok_or(fs::error::Error::PathNotAbsolute)?;
+    fn get_entries_in_directory(
+        &mut self,
+        dir: FatDirent
+    ) -> fs::Result<impl Iterator<Item = fs::Result<FatDirent>> + '_> {
+        let current_dir_cluster = {
+            let current_dir_cluster = dir.fst_clus();
+            match self.get_cluster_type(current_dir_cluster) {
+                ClusterType::Valid => Ok(current_dir_cluster),
+                t => Err(t)
+            }
+        };
+        DirentIterator::new(self, current_dir_cluster)
+    }
 
+    fn get_directory_entry(&mut self, path: &Path) -> fs::Result<FatDirent> {
         let mut components = path.components();
 
         let mut current_directory = match self.bpb_ext {
@@ -508,54 +692,41 @@ impl<'a> vfs::FileSystem for FatFileSystem<'a> {
                 self.search_root_for_entry(first_component.as_bytes())?
             }
             FatBpbExt::Fat32(ref bpb_ext) => {
-                let mut current_directory = FatDirent::default();
-                current_directory.set_fst_clus(bpb_ext.root_cluster);
-                current_directory
+                FatDirent::root_dir(bpb_ext.root_cluster)
             }
         };
 
         for component in components {
-            let mut found = false;
-            let mut cluster_type = ClusterType::Valid;
-            let mut current_dir_cluster = current_directory.fst_clus();
-            while !found && cluster_type == ClusterType::Valid {
-                let sector_count = self.bpb.sectors_per_cluster;
-                let mut buffer = vec![
-                    0u8;
-                    sector_count as usize * self.bpb.bytes_per_sector as usize
-                ];
-                self.disk.read_blocks(
-                    self.cluster_to_lba(current_dir_cluster),
-                    sector_count as u32,
-                    &mut buffer,
-                ).map_err(fs::error::Error::Other)?;
-
-                let entries = unsafe {
-                    core::slice::from_raw_parts(
-                        buffer.as_ptr() as *const FatDirent,
-                        buffer.len() / size_of::<FatDirent>(),
-                    )
-                };
-
-                match self.search_for_entry(entries, component.as_bytes()) {
-                    Ok(dirent) => {
-                        current_directory = dirent;
-                        found = true;
-                    },
-                    Err(fs::error::Error::FileNotFound) => {
-                        (cluster_type, current_dir_cluster) =
-                            self.next_cluster_not_bad(current_dir_cluster);
-                    },
-                    Err(e) => return Err(e),
-                };
-            }
+            let name = convert_to_83_filename_with_terminator(component.as_bytes())
+                .ok_or(fs::error::Error::InvalidPath)?;
+            current_directory = self.get_entries_in_directory(current_directory)?
+                .find_map(|entry| match entry {
+                    Ok(dirent) => if !dirent.attr().is_long_name() && dirent.name == name {
+                        Some(Ok(dirent))
+                    } else {
+                        None
+                    }
+                    Err(e) => Some(Err(e))
+                })
+                .ok_or(fs::error::Error::FileNotFound)??;
         }
 
-        if current_directory.attr().contains(FatAttr::DIRECTORY) {
+        Ok(current_directory)
+    }
+}
+
+#[allow(refining_impl_trait)]
+impl<'a> vfs::FileSystem for FatFileSystem<'a> {
+    fn open(&mut self, path: &Path) -> fs::Result<FileImpl<'a, '_>> {
+        path.is_absolute().ok_or(fs::error::Error::PathNotAbsolute)?;
+
+        let directory_entry = self.get_directory_entry(path)?;
+
+        if directory_entry.attr().contains(FatAttr::DIRECTORY) {
             return Err(fs::error::Error::IsDirectory);
         }
 
-        Ok(FatFile::new(self, current_directory).into())
+        Ok(FatFile::new(self, directory_entry, path.to_owned()).into())
     }
 
     fn create_file(&mut self, path: &Path) -> fs::Result<FileImpl<'a, '_>> {
@@ -575,7 +746,25 @@ impl<'a> vfs::FileSystem for FatFileSystem<'a> {
     }
 
     fn read_dir(&mut self, path: &Path) -> fs::Result<impl Iterator<Item = DirEntry>> {
-        Ok(iter::empty())
+        path.is_absolute().ok_or(fs::error::Error::PathNotAbsolute)?;
+
+        let directory_entry = self.get_directory_entry(path)?;
+
+        if !directory_entry.attr().contains(FatAttr::DIRECTORY) {
+            return Err(fs::error::Error::NotADirectory);
+        }
+
+        self.get_entries_in_directory(directory_entry)?
+            .try_fold(
+                Vec::new(),
+                |mut acc, entry| {
+                    if let Some(dir_entry) = entry?.to_dir_entry() {
+                        acc.push(dir_entry)
+                    }
+                    Ok(acc)
+                }
+            )
+            .map(Vec::into_iter)
     }
 }
 

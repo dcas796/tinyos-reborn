@@ -1,14 +1,16 @@
 use alloc::string::String;
 use core::fmt;
+use core::fmt::Formatter;
 use enum_dispatch::enum_dispatch;
 use crate::fs;
-use crate::fs::path::Path;
+use crate::fs::path::{Path, PathBuf};
+use crate::util::date::Date;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SeekFrom {
     Start(u64),
     End(i64),
-    Current(u64),
+    Current(i64),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -23,10 +25,29 @@ pub struct DirEntry {
     pub kind: EntryKind,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Metadata {
+    pub path: PathBuf,
     pub kind: EntryKind,
     pub size: u64,
+    pub creation_date: Date,
+    pub last_modified_date: Date,
+}
+
+impl fmt::Display for Metadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Metadata {{
+    path: {:?}, 
+    kind: {:?}, 
+    size: {}, 
+    creation_date: {}, 
+    last_modified_date: {} 
+}}",
+            self.path, self.kind, self.size, self.creation_date, self.last_modified_date
+        )
+    }
 }
 
 #[enum_dispatch]
