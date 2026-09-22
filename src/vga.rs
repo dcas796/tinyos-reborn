@@ -242,6 +242,12 @@ impl Vga<'_> {
 
 impl<'a> Default for Vga<'a> {
     fn default() -> Vga<'a> {
+        /* Disable the cursor */
+        unsafe {
+            x86::io::outb(0x3D4, 0x0A);
+            x86::io::outb(0x3D5, 0x20);
+        }
+
         Self::new(
             unsafe {
                 core::slice::from_raw_parts_mut(
