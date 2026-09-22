@@ -72,6 +72,21 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
     println!("Boot drive: {Yellow}{:#x}{End}", info.boot_drive);
     print_mem_regions(info.mem_regions);
 
+    /* Configure screen scroll */
+    set_keyboard_handler(|scan_code, _meta| {
+        if let Some(physical_key) = scan_code.physical_key(ScanCodeSet::default()) {
+            if scan_code.is_down() && let Some(vga) = vga::vga().borrow_mut().as_mut() {
+                match physical_key {
+                    PhysicalKey::DownArrow => vga.scroll_down(1),
+                    PhysicalKey::UpArrow => vga.scroll_up(1),
+                    _ => {},
+                }
+            }
+        } else {
+            logln!("Unrecognized scan code: {scan_code}");
+        }
+    });
+
     /* Get ACPI information */
     let acpi = init_acpi(info.rsdp);
     println!("ACPI OEM: {Yellow}{}{End}, Revision: {Yellow}{}{End}", acpi.oem_id, acpi.revision);
@@ -156,8 +171,8 @@ pub unsafe extern "C" fn _start(info_raw: *const sysinfo_t) -> ! {
         do_filesystem_test(&mut file_system);
         println!("{Cyan}Timer{End}");
         do_timer_test();
-        println!("{Cyan}Keyboard{End}");
-        do_keyboard_test();
+        // println!("{Cyan}Keyboard{End}");
+        // do_keyboard_test();
     }
 
     halt();

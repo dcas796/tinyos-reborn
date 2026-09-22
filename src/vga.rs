@@ -1,3 +1,5 @@
+use alloc::boxed::Box;
+use alloc::vec;
 use core::cell::RefCell;
 use core::fmt::{Display, Formatter, Write};
 use int_enum::IntEnum;
@@ -5,6 +7,7 @@ use crate::util::interrupt_lock::{InterruptLock, InterruptLockRef};
 
 const DEFAULT_VGA_WIDTH: usize = 80;
 const DEFAULT_VGA_HEIGHT: usize = 25;
+const TEXT_BUFFER_MULTIPLIER: usize = 10;
 
 static VGA: InterruptLock<RefCell<Option<Vga>>> = InterruptLock::new(RefCell::new(None));
 
@@ -114,7 +117,9 @@ impl From<VgaChar> for u16 {
 }
 
 pub struct Vga<'a> {
-    buffer: &'a mut [u16],
+    io_buffer: &'a mut [u16],
+    text_buffer: Box<[u16]>,
+    text_buffer_offset: usize,
     width: usize,
     height: usize,
     cursor_x: usize,
@@ -127,7 +132,9 @@ pub struct Vga<'a> {
 impl<'a> Vga<'a> {
     pub fn new(buffer: &'a mut [u16], width: usize, height: usize) -> Vga<'a> {
         Self {
-            buffer,
+            io_buffer: buffer,
+            text_buffer: vec![0u16; width * height * TEXT_BUFFER_MULTIPLIER].into_boxed_slice(),
+            text_buffer_offset: 0,
             width,
             height,
             cursor_x: 0,
@@ -141,11 +148,12 @@ impl<'a> Vga<'a> {
 
 impl Vga<'_> {
     pub fn plot(&mut self, char: VgaChar, x: usize, y: usize) -> Result<(), &'static str> {
-        if x >= self.width || y >= self.height {
-            return Err("Out of bounds");
+        let pos = y * self.width + x;
+        if self.text_buffer_offset < pos &&
+            pos - self.text_buffer_offset < self.width * self.height {
+            self.io_buffer[pos - self.text_buffer_offset] = char.into();
         }
-
-        self.buffer[y * self.width + x] = char.into();
+        self.text_buffer[self.text_buffer_offset + pos] = char.into();
 
         Ok(())
     }
@@ -187,21 +195,36 @@ impl Vga<'_> {
         self.cursor_x = 0;
         self.cursor_y += 1;
 
-        if self.cursor_y >= self.height {
-            self.cursor_y = self.height - 1;
-            self.scroll_up();
+        if self.cursor_y >= self.height + self.text_buffer_offset {
+            self.scroll_down(1);
         }
     }
 
-    pub fn scroll_up(&mut self) {
-        self.buffer.copy_within(self.width.., 0);
-        self.buffer[(self.height - 1) * self.width..].fill(0);
+    pub fn scroll_down(&mut self, lines: u8) {
+        let offset = self.width * lines as usize;
+        self.text_buffer_offset += offset;
+        self.io_buffer.copy_within(offset.., 0);
+        let range =
+            (self.text_buffer_offset + (self.height - 1) * offset)
+                ..(self.text_buffer_offset + self.height * self.width);
+        self.io_buffer[(self.height - 1) * offset..]
+            .copy_from_slice(&self.text_buffer[range]);
+    }
+
+    pub fn scroll_up(&mut self, lines: u8) {
+        let offset = self.width * lines as usize;
+        self.text_buffer_offset = self.text_buffer_offset.saturating_sub(offset);
+        let range =
+            self.text_buffer_offset..(self.text_buffer_offset + self.width * self.height);
+        self.io_buffer.copy_from_slice(&self.text_buffer[range]);
     }
 
     pub fn clear_screen(&mut self) {
         self.cursor_x = 0;
         self.cursor_y = 0;
-        self.buffer.fill(0);
+        self.text_buffer_offset = 0;
+        self.io_buffer.fill(0);
+        self.text_buffer.fill(0);
     }
     
     pub fn set_foreground(&mut self, color: VgaColor) {
